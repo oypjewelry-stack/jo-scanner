@@ -2,8 +2,7 @@
 body{font-family:Inter,Arial,sans-serif;background:#fff;color:#111;-webkit-tap-highlight-color:transparent;padding-bottom:env(safe-area-inset-bottom)}
 h1,h2,.serif{font-family:'Playfair Display',Georgia,serif}
 .top{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid #eee;position:sticky;top:0;background:#fff;z-index:5}
-.logo{font-family:'Playfair Display',serif;font-style:italic;font-size:24px}
-.logo b{display:inline-block;width:26px;height:26px;border:2px solid #d4af37;border-radius:50%;vertical-align:middle;margin-right:-9px}
+.logo{height:40px;width:auto;display:block}
 .title{font-size:17px}.icon{background:none;border:0;font-size:26px;width:48px;height:48px}
 .view{padding:28px 20px}.hidden{display:none!important}
 h1{font-size:30px;margin-bottom:8px}.muted{color:#777}
