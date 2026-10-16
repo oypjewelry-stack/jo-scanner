@@ -186,3 +186,6 @@ header.top{background:#fff}
 #scanView .controls .toggle:last-child{justify-self:end}
 #btnDone{display:block;width:fit-content;width:-webkit-fit-content;margin-left:auto;margin-right:auto;min-height:44px;background:#000;color:#fff;border:0;border-radius:16px;font-family:'Libre Bodoni',serif;font-weight:500;font-size:22px;letter-spacing:.04em;padding:14px 40px}
 #btnCapture.shutter{background:#d4af37}
+
+/* toggles aligned to viewfinder edges */
+#scanView .controls{box-sizing:border-box;max-width:100%;margin-left:auto;margin-right:auto;padding-left:0;padding-right:0}
