@@ -154,3 +154,5 @@ header.top .title{font-size:20px}
 .jorow input.big{padding-left:76px}
 /* owner: JO number uses same font as JO label (size/colour unchanged) */
 .jorow input.big{font-family:Inter,Helvetica,sans-serif;font-weight:500}
+/* owner step1: vertically centre start block below header */
+#startView{display:flex;flex-direction:column;justify-content:center;box-sizing:border-box;min-height:calc(100vh - 77px);min-height:calc(100dvh - 77px)}
