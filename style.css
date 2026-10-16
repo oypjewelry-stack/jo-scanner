@@ -120,3 +120,5 @@ header.top .title, h1{font-size:22px}
 .jorow .mic:active{transform:translateY(-50%) scale(.92)}
 .jorow .mic.listening{background:rgba(214,48,49,.12);color:#d63031;animation:micdot 1s ease-in-out infinite}
 @keyframes micdot{50%{box-shadow:0 0 0 7px rgba(214,48,49,.18)}}
+/* owner: SCAN button auto-width, centered */
+#btnStart{display:block;width:auto;margin-left:auto;margin-right:auto;padding:14px 36px;min-height:44px}
