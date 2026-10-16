@@ -1,19 +1,19 @@
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:Inter,Arial,sans-serif;background:#fff;color:#111;-webkit-tap-highlight-color:transparent;padding-bottom:env(safe-area-inset-bottom)}
-h1,h2,.serif{font-family:'Playfair Display',Georgia,serif}
+body{font-family:Inter,-apple-system,Helvetica,Arial,sans-serif;background:#fff;color:#111;-webkit-tap-highlight-color:transparent;padding-bottom:env(safe-area-inset-bottom)}
+h1,h2,.serif{font-family:'Bodoni Moda',Didot,'Bodoni 72',serif}
 .top{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid #eee;position:sticky;top:0;background:#fff;z-index:5}
 .logo{height:40px;width:auto;display:block}
 .title{font-size:17px}.icon{background:none;border:0;font-size:26px;width:48px;height:48px}
 .view{padding:28px 20px}.hidden{display:none!important}
 h1{font-size:30px;margin-bottom:8px}.muted{color:#777}
 .lbl{display:block;font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:#777;margin:26px 0 8px}
-input.big{width:100%;font-size:34px;padding:18px;border:2px solid #111;border-radius:14px;text-align:center;font-family:'Playfair Display',serif;letter-spacing:.05em}
+input.big{width:100%;font-size:34px;padding:18px;border:2px solid #111;border-radius:14px;text-align:center;font-family:'Bodoni Moda',Didot,serif;letter-spacing:.05em}
 input.mid{width:100%;font-size:16px;padding:14px;border:1px solid #ccc;border-radius:10px}
 button.primary{width:100%;min-height:60px;margin-top:22px;background:#111;color:#fff;border:0;border-radius:14px;font-size:18px;font-weight:600}
 button.ghost{min-height:52px;padding:0 20px;background:#fff;border:1px solid #111;border-radius:12px;font-size:16px}
 .warn{margin-top:18px;color:#a06b00;font-size:14px}
 #scanView{padding:12px 14px}
-.jobar{display:flex;justify-content:space-between;font-size:18px;margin-bottom:10px}.jobar strong{font-family:'Playfair Display',serif}
+.jobar{display:flex;justify-content:space-between;font-size:18px;margin-bottom:10px}.jobar strong{font-family:'Bodoni Moda',Didot,serif}
 .stage{position:relative;width:100%;aspect-ratio:3/4;background:#000;border-radius:16px;overflow:hidden}
 .stage video,.stage canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .guide{position:absolute;inset:7% 8%;border:2px dashed rgba(212,175,55,.9);border-radius:10px;pointer-events:none}
@@ -37,3 +37,7 @@ dialog .row{display:flex;gap:10px;margin-top:16px}dialog .row button{flex:1;marg
 .mic.listening{background:#d4af37;color:#111;animation:micpulse 1.1s ease-in-out infinite}
 @keyframes micpulse{0%{box-shadow:0 0 0 0 rgba(212,175,55,.7)}70%{box-shadow:0 0 0 16px rgba(212,175,55,0)}100%{box-shadow:0 0 0 0 rgba(212,175,55,0)}}
 #startView .toggle{margin-top:10px;color:#555}
+h1,h2,.serif{font-weight:500;letter-spacing:-.005em}
+button.primary{font-family:'Bodoni Moda',Didot,serif;font-weight:500;font-size:20px;letter-spacing:.06em}
+.lbl{font-family:Inter,Helvetica,sans-serif;font-weight:500;font-size:12px;letter-spacing:.14em}
+.price{font-family:'Bodoni Moda',Didot,serif;font-weight:600}
