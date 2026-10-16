@@ -122,3 +122,8 @@ header.top .title, h1{font-size:22px}
 @keyframes micdot{50%{box-shadow:0 0 0 7px rgba(214,48,49,.18)}}
 /* owner: SCAN button auto-width, centered */
 #btnStart{display:block;width:fit-content;width:-webkit-fit-content;margin-left:auto;margin-right:auto;padding:14px 36px;min-height:44px}
+/* owner mockup: black pill SCAN; hamburger left, logo right */
+#btnStart{background:#000;color:#fff;border:0;border-radius:16px;font-family:'Libre Bodoni',serif;font-weight:500;font-size:22px;letter-spacing:.04em;padding:14px 40px;text-transform:none}
+header.top #btnSettings{order:0}
+header.top .title{order:1}
+header.top .logo{order:2}
