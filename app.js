@@ -8,7 +8,7 @@ if (qs.get('api')) localStorage.setItem(LS.api, qs.get('api'));
 if (qs.get('token')) localStorage.setItem(LS.token, qs.get('token'));
 
 const state = { jo: '', page: 0, stream: null, loop: null, lastQuad: null, steadySince: 0, cooldownUntil: 0, pages: [] };
-const MAX_PX = 2000, QUALITY = 0.85, STEADY_MS = 1000, COOLDOWN_MS = 2500;
+const MAX_PX = 2000, QUALITY = 0.85, STEADY_MS = 800, COOLDOWN_MS = 2500;
 
 /* ---------- JO normalisation (shared logic with Code.gs) ---------- */
 function normJO(s) {
@@ -62,86 +62,157 @@ async function startCamera() {
 }
 function hint(t, ok) { const h = $('hint'); h.textContent = t; h.classList.toggle('ok', !!ok); }
 
-/* ---------- lightweight edge/paper detection ---------- */
-const DW = 160;
-function detect() {
-  const vw = video.videoWidth, vh = video.videoHeight; if (!vw) return null;
-  const dh = Math.round(DW * vh / vw);
-  work.width = DW; work.height = dh;
-  const c = work.getContext('2d', { willReadFrequently: true });
-  c.drawImage(video, 0, 0, DW, dh);
-  const d = c.getImageData(0, 0, DW, dh).data, n = DW * dh, g = new Uint8Array(n), hist = new Array(256).fill(0);
-  for (let i = 0; i < n; i++) { const v = (d[i*4]*77 + d[i*4+1]*150 + d[i*4+2]*29) >> 8; g[i] = v; hist[v]++; }
-  // Otsu threshold
-  let sum = 0; for (let i = 0; i < 256; i++) sum += i * hist[i];
-  let sB = 0, wB = 0, best = 0, th = 128;
-  for (let i = 0; i < 256; i++) { wB += hist[i]; if (!wB) continue; const wF = n - wB; if (!wF) break;
-    sB += i * hist[i]; const mB = sB / wB, mF = (sum - sB) / wF, v = wB * wF * (mB - mF) ** 2; if (v > best) { best = v; th = i; } }
-  // largest bright connected component (card paper is lighter than the table)
-  const lab = new Int32Array(n); let bestId = 0, bestSz = 0, id = 0; const stack = new Int32Array(n);
-  for (let s = 0; s < n; s++) {
-    if (lab[s] || g[s] <= th) continue; id++; let sp = 0, sz = 0; stack[sp++] = s; lab[s] = id;
-    while (sp) { const p = stack[--sp]; sz++; const x = p % DW;
-      const nb = [p - DW, p + DW, x > 0 ? p - 1 : -1, x < DW - 1 ? p + 1 : -1];
-      for (const q of nb) if (q >= 0 && q < n && !lab[q] && g[q] > th) { lab[q] = id; stack[sp++] = q; } }
-    if (sz > bestSz) { bestSz = sz; bestId = id; }
-  }
-  if (bestSz < n * 0.2 || bestSz > n * 0.97) return null;
-  // corners = extremes of x+y and x-y
-  let tl = [0,0,1e9], tr = [0,0,-1e9], br = [0,0,-1e9], bl = [0,0,1e9];
-  for (let p = 0; p < n; p++) if (lab[p] === bestId) { const x = p % DW, y = (p / DW) | 0;
-    if (x + y < tl[2]) tl = [x, y, x + y]; if (x + y > br[2]) br = [x, y, x + y];
-    if (x - y > tr[2]) tr = [x, y, x - y]; if (x - y < bl[2]) bl = [x, y, x - y]; }
-  const quad = [tl, tr, br, bl].map(p => [p[0] / DW, p[1] / dh]);
-  const area = polyArea(quad); if (area < 0.2) return null;
-  // reject if the blob is far from a quadrilateral (fill ratio)
-  if (bestSz / n / area < 0.85) return null;
-  return quad;
+/* ---------- OpenCV.js card detection (lazy-loaded) ---------- */
+const CV_URLS = ['https://cdn.jsdelivr.net/npm/@techstark/opencv-js@4.10.0-release.1/dist/opencv.js', 'https://docs.opencv.org/4.9.0/opencv.js'];
+let cvReady = null;
+function loadCV() {
+  if (cvReady) return cvReady;
+  cvReady = new Promise((resolve, reject) => {
+    let i = 0;
+    const tryNext = () => {
+      if (i >= CV_URLS.length) { cvReady = null; return reject(new Error('detector failed to load')); }
+      const sc = document.createElement('script'); sc.async = true; sc.src = CV_URLS[i++];
+      // the Emscripten module is itself a thenable; strip .then so resolving with it can't loop forever
+      const done = m => { try { delete m.then; } catch (e) {} if (typeof m.then === 'function') m.then = undefined; window.cv = m; resolve(m); };
+      sc.onload = () => { const c = window.cv;
+        if (!c) return tryNext();
+        if (c.Mat) return done(c);
+        if (typeof c.then === 'function') return c.then(done);
+        c.onRuntimeInitialized = () => done(window.cv); };
+      sc.onerror = () => { sc.remove(); tryNext(); };
+      document.head.appendChild(sc);
+    };
+    tryNext();
+  });
+  return cvReady;
 }
-function polyArea(q) { let a = 0; for (let i = 0; i < 4; i++) { const [x1,y1] = q[i], [x2,y2] = q[(i+1)%4]; a += x1*y2 - x2*y1; } return Math.abs(a) / 2; }
+// start downloading the detector shortly after first load, so it's ready by the time a card starts
+window.addEventListener('load', () => setTimeout(() => loadCV().catch(() => {}), 600));
+
+const DW = 480;
+function detect(cv) {
+  const vw = video.videoWidth, vh = video.videoHeight; if (!vw) return null;
+  const s = DW / Math.max(vw, vh); work.width = Math.round(vw * s); work.height = Math.round(vh * s);
+  const c = work.getContext('2d', { willReadFrequently: true }); c.drawImage(video, 0, 0, work.width, work.height);
+  const m = cv.imread(work);
+  try { const r = CardDetector.detectQuad(cv, m, { size: DW }); return r ? r.quad : null; } finally { m.delete(); }
+}
 
 function drawQuad(q, ok) {
   const r = overlay.getBoundingClientRect(); overlay.width = r.width; overlay.height = r.height;
   const c = overlay.getContext('2d'); c.clearRect(0, 0, r.width, r.height); if (!q) return;
-  // map normalised video coords to the object-fit:cover element
   const vw = video.videoWidth, vh = video.videoHeight, s = Math.max(r.width / vw, r.height / vh);
   const ox = (r.width - vw * s) / 2, oy = (r.height - vh * s) / 2;
-  c.strokeStyle = ok ? '#d4af37' : 'rgba(255,255,255,.8)'; c.lineWidth = 4; c.fillStyle = ok ? 'rgba(212,175,55,.18)' : 'rgba(255,255,255,.08)';
+  c.strokeStyle = ok ? '#d4af37' : 'rgba(255,255,255,.9)'; c.lineWidth = 4; c.fillStyle = ok ? 'rgba(212,175,55,.18)' : 'rgba(255,255,255,.08)';
   c.beginPath(); q.forEach(([x, y], i) => c[i ? 'lineTo' : 'moveTo'](ox + x * vw * s, oy + y * vh * s)); c.closePath(); c.fill(); c.stroke();
 }
 
+const SMOOTH = 0.5, STEADY_TOL = 0.018, LOST_FRAMES = 3;
+let missCount = 0, busy = false;
 function runLoop() {
   clearInterval(state.loop);
-  state.loop = setInterval(() => {
-    if ($('scanView').classList.contains('hidden')) return;
-    const q = detect(), now = Date.now();
-    if (!q) { state.lastQuad = null; state.steadySince = 0; drawQuad(null); hint('Align the card inside the frame'); return; }
-    const moved = state.lastQuad ? Math.max(...q.map((p, i) => Math.hypot(p[0] - state.lastQuad[i][0], p[1] - state.lastQuad[i][1]))) : 1;
-    state.lastQuad = q;
-    if (moved > 0.02) state.steadySince = now;
-    const steady = now - state.steadySince >= STEADY_MS;
-    drawQuad(q, steady);
-    if (now < state.cooldownUntil) { hint('Captured. Flip to the next page', true); return; }
-    if (!$('autoSnap').checked) { hint('Card found. Tap the button to capture', true); return; }
-    if (steady) capture(q); else hint('Card found. Hold steady…');
-  }, 150);
+  if (!window.cv || !window.cv.Mat) hint('Loading detector…');
+  loadCV().then(cv => {
+    clearInterval(state.loop);
+    state.loop = setInterval(() => {
+      if (busy || $('scanView').classList.contains('hidden') || review.open) return;
+      busy = true;
+      let q = null; try { q = detect(cv); } catch (e) { console.warn(e); }
+      busy = false;
+      const now = Date.now();
+      if (!q) {
+        if (++missCount < LOST_FRAMES && state.lastQuad) return; // ignore a single dropped frame
+        state.lastQuad = null; state.steadySince = 0; drawQuad(null);
+        hint($('autoSnap').checked ? 'Looking for the card… (tap shutter to crop by hand)' : 'Tap the shutter to capture'); return;
+      }
+      missCount = 0;
+      const prev = state.lastQuad;
+      const moved = prev ? CardDetector.maxDist(q, prev) : 1;
+      // temporal smoothing of corners; a big jump means a new card/page, so reset
+      const sm = prev && moved < 0.08 ? q.map((p, i) => [prev[i][0] * SMOOTH + p[0] * (1 - SMOOTH), prev[i][1] * SMOOTH + p[1] * (1 - SMOOTH)]) : q;
+      if (moved > STEADY_TOL) state.steadySince = now;
+      state.lastQuad = sm;
+      const steady = now - state.steadySince >= STEADY_MS;
+      drawQuad(sm, steady);
+      if (now < state.cooldownUntil) { hint('Captured. Flip to the next page', true); return; }
+      if (!$('autoSnap').checked) { hint('Card found. Tap the shutter', true); return; }
+      if (steady) capture(sm, true); else hint('Card found. Hold steady…');
+    }, 120);
+  }).catch(() => hint('Detector unavailable: tap the shutter and set corners by hand'));
 }
 
-/* ---------- capture + perspective correction ---------- */
-$('btnCapture').onclick = () => capture(state.lastQuad);
-function capture(quad) {
-  if (!video.videoWidth) return;
-  state.cooldownUntil = Date.now() + COOLDOWN_MS; state.steadySince = Date.now();
+/* ---------- capture -> review (draggable corners) -> warp ---------- */
+const review = { open: false, src: null, quad: null };
+$('btnCapture').onclick = () => capture(state.lastQuad, false);
+function capture(quad, auto) {
+  if (!video.videoWidth || review.open) return;
   const vw = video.videoWidth, vh = video.videoHeight;
   const src = document.createElement('canvas'); src.width = vw; src.height = vh; src.getContext('2d').drawImage(video, 0, 0);
+  if (navigator.vibrate) navigator.vibrate(40);
+  const q = quad ? quad.map(p => p.slice()) : [[0.08, 0.08], [0.92, 0.08], [0.92, 0.92], [0.08, 0.92]];
+  if (!$('doCrop').checked) return savePage(src, null);
+  openReview(src, q, !!quad);
+}
+function openReview(src, q, found) {
+  review.open = true; review.src = src; review.quad = q;
+  $('rvTitle').textContent = found ? 'Check the crop' : 'Card not found: drag the corners';
+  $('review').classList.remove('hidden');
+  requestAnimationFrame(layoutReview);
+}
+function rvGeom() {
+  const box = $('rvStage').getBoundingClientRect(), W = review.src.width, H = review.src.height;
+  const s = Math.min(box.width / W, box.height / H);
+  return { s, ox: (box.width - W * s) / 2, oy: (box.height - H * s) / 2, W, H };
+}
+function layoutReview() {
+  const cvs = $('rvCanvas'), g = rvGeom();
+  cvs.width = Math.round(g.W * g.s * devicePixelRatio); cvs.height = Math.round(g.H * g.s * devicePixelRatio);
+  cvs.style.width = g.W * g.s + 'px'; cvs.style.height = g.H * g.s + 'px'; cvs.style.left = g.ox + 'px'; cvs.style.top = g.oy + 'px';
+  cvs.getContext('2d').drawImage(review.src, 0, 0, cvs.width, cvs.height);
+  drawReview();
+}
+function drawReview() {
+  const g = rvGeom(), sv = $('rvLines'), box = $('rvStage').getBoundingClientRect();
+  const P = review.quad.map(([x, y]) => [g.ox + x * g.W * g.s, g.oy + y * g.H * g.s]);
+  sv.setAttribute('viewBox', `0 0 ${box.width} ${box.height}`);
+  const pts = P.map(p => p.join(',')).join(' ');
+  sv.innerHTML = `<defs><mask id="m"><rect width="100%" height="100%" fill="#fff"/><polygon points="${pts}" fill="#000"/></mask></defs>` +
+    `<rect width="100%" height="100%" fill="rgba(0,0,0,.45)" mask="url(#m)"/><polygon points="${pts}" fill="none" stroke="#d4af37" stroke-width="3"/>`;
+  document.querySelectorAll('#rvStage .handle').forEach((h, i) => { h.style.left = P[i][0] + 'px'; h.style.top = P[i][1] + 'px'; });
+}
+document.querySelectorAll('#rvStage .handle').forEach((h, i) => {
+  let off = null;
+  h.addEventListener('pointerdown', e => { e.preventDefault(); h.setPointerCapture(e.pointerId); h.classList.add('drag');
+    const r = h.getBoundingClientRect(); off = [e.clientX - (r.left + r.width / 2), e.clientY - (r.top + r.height / 2)]; });
+  h.addEventListener('pointermove', e => { if (!off) return; const g = rvGeom(), box = $('rvStage').getBoundingClientRect();
+    const x = (e.clientX - off[0] - box.left - g.ox) / (g.W * g.s), y = (e.clientY - off[1] - box.top - g.oy) / (g.H * g.s);
+    review.quad[i] = [Math.min(1, Math.max(0, x)), Math.min(1, Math.max(0, y))]; drawReview(); });
+  const up = () => { off = null; h.classList.remove('drag'); };
+  h.addEventListener('pointerup', up); h.addEventListener('pointercancel', up);
+});
+window.addEventListener('resize', () => { if (review.open) layoutReview(); });
+function closeReview() { review.open = false; $('review').classList.add('hidden'); state.cooldownUntil = Date.now() + COOLDOWN_MS; state.steadySince = Date.now(); }
+$('rvRetake').onclick = () => { closeReview(); state.cooldownUntil = 0; };
+$('rvNoCrop').onclick = () => { const s = review.src; closeReview(); savePage(s, null); };
+$('rvUse').onclick = () => {
+  const s = review.src, q = CardDetector.order(review.quad.map(p => p.slice())); closeReview(); savePage(s, q);
+};
+function savePage(src, quad) {
   let out;
-  if (quad && $('doCrop').checked) out = warp(src, quad.map(([x, y]) => [x * vw, y * vh]));
-  else { const s = Math.min(1, MAX_PX / Math.max(vw, vh)); out = document.createElement('canvas'); out.width = vw * s; out.height = vh * s; out.getContext('2d').drawImage(src, 0, 0, out.width, out.height); }
+  if (quad) out = warp(src, quad);
+  else { const s = Math.min(1, MAX_PX / Math.max(src.width, src.height)); out = document.createElement('canvas'); out.width = Math.round(src.width * s); out.height = Math.round(src.height * s); out.getContext('2d').drawImage(src, 0, 0, out.width, out.height); }
   const dataUrl = out.toDataURL('image/jpeg', QUALITY);
   state.page++; updatePageLabel();
   const pg = { jo: state.jo, page: state.page, filename: `${state.jo}-p${state.page}.jpg`, dataUrl, status: 'queued' };
   state.pages.push(pg); addRow(pg); upload(pg);
-  if (navigator.vibrate) navigator.vibrate(60);
+}
+function warp(src, q) { // full-resolution perspective warp; OpenCV if loaded, else pure JS fallback
+  const cv = window.cv;
+  if (cv && cv.Mat) {
+    const m = cv.imread(src), o = CardDetector.warpQuad(cv, m, q, MAX_PX), c = document.createElement('canvas');
+    cv.imshow(c, o); m.delete(); o.delete(); return c;
+  }
+  return warpJS(src, q.map(([x, y]) => [x * src.width, y * src.height]));
 }
 function homography(s, d) { // maps d -> s (8 unknowns, Gaussian elimination)
   const A = [], b = [];
@@ -152,7 +223,7 @@ function homography(s, d) { // maps d -> s (8 unknowns, Gaussian elimination)
     for (let r = 0; r < 8; r++) if (r !== i) { const f = A[r][i] / A[i][i]; for (let c = i; c < 8; c++) A[r][c] -= f * A[i][c]; b[r] -= f * b[i]; } }
   return b.map((v, i) => v / A[i][i]).concat(1);
 }
-function warp(src, q) {
+function warpJS(src, q) {
   const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
   let W = Math.max(dist(q[0], q[1]), dist(q[3], q[2])), H = Math.max(dist(q[0], q[3]), dist(q[1], q[2]));
   const s = Math.min(1, MAX_PX / Math.max(W, H)); W = Math.round(W * s); H = Math.round(H * s);
@@ -166,6 +237,7 @@ function warp(src, q) {
     o[di] = sd[si]; o[di + 1] = sd[si + 1]; o[di + 2] = sd[si + 2]; o[di + 3] = 255; }
   oc.putImageData(od, 0, 0); return out;
 }
+window.__scan = { state, review, openReview, capture };
 
 /* ---------- list + upload ---------- */
 function addRow(pg) {

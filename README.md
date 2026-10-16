@@ -39,3 +39,9 @@ Tip: add the page to the Home Screen from Safari's Share menu so it opens full-s
 
 ## Voice input
 Tap the gold mic button beside the JO box and say the number ("twenty six zero zero one", "two six oh oh one", "JO 26 001"). It fills in `26-001` and, if "Start card automatically" is ticked, starts the card. If the browser lacks speech recognition the button is hidden; keyboard dictation still works.
+
+## Card detection (v2)
+- Detection uses OpenCV.js (loaded from jsDelivr after the page opens; "Loading detector…" shows until ready). It tries Canny edges, brightness/saturation thresholds and adaptive threshold on a 480px frame, keeps the best 4-corner shape, smooths it across frames, and auto-snaps after ~0.8 s steady.
+- After every capture a review screen opens: drag the 4 gold corners to fit the card, then **Use**, **No crop** (keep full photo) or **Retake**.
+- If no card is found, tap the shutter: the full photo opens in the corner editor with a default rectangle.
+- Tips: a darker or plain surface under the card, and no other sheets touching it, gives the best auto-crop.
