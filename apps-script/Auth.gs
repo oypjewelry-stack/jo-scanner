@@ -19,6 +19,7 @@ var GENERIC_ERR = 'Name or code is wrong';
 /* ---------- routing ---------- */
 function handleAction_(req) {
   var a = req.action;
+  if (typeof handleCustomer_ === 'function' && isCustAction_(a)) return handleCustomer_(req); // Customers.gs
   if (a === 'login') return login_(req);
   if (a === 'ping') return { ok: true, service: 'OYP' };
   var s = sessionFrom_(req.session);

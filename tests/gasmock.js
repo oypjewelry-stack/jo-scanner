@@ -18,13 +18,16 @@ module.exports = function load() {
     SpreadsheetApp: { openById: () => ss, create: () => ss },
     LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
     Utilities: { DigestAlgorithm: { SHA_256: 1 }, Charset: { UTF_8: 1 }, getUuid: () => crypto.randomUUID(),
+      base64Encode: b => Buffer.from(b).toString('base64'), formatDate: d => d.toISOString().slice(0, 10),
       computeDigest: (_, s) => Array.from(crypto.createHash('sha256').update(s, 'utf8').digest()).map(b => b > 127 ? b - 256 : b) },
     ContentService: { MimeType: { JSON: 1 }, createTextOutput: t => ({ setMimeType: () => ({ text: t }) }) },
-    Logger: { log() {} }, DriveApp: {}, Drive: {}, DocumentApp: {},
+    Logger: { log() {} }, Drive: {}, DocumentApp: {},
+    MailApp: { sent: [], sendEmail(o) { this.sent.push(o); } },
+    DriveApp: { getFileById: id => ({ getThumbnail: () => ({ getContentType: () => 'image/png', getBytes: () => Buffer.from('img:' + id) }) }) },
   };
   vm.createContext(ctx);
-  for (const f of ['Code.gs', 'Auth.gs']) vm.runInContext(fs.readFileSync(__dirname + '/../apps-script/' + f, 'utf8'), ctx);
+  for (const f of ['Code.gs', 'Auth.gs', 'Customers.gs']) vm.runInContext(fs.readFileSync(__dirname + '/../apps-script/' + f, 'utf8'), ctx);
   ctx.call = req => JSON.parse(ctx.doPost({ postData: { contents: JSON.stringify(req) } }).text);
-  ctx._ = { props, cache, sheets, advance: ms => { clock += ms; } };
+  ctx._ = { mail: ctx.MailApp.sent, props, cache, sheets, advance: ms => { clock += ms; } };
   return ctx;
 };

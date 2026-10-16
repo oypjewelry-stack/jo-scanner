@@ -51,3 +51,18 @@ Tap the gold mic button beside the JO box and say the number ("twenty six zero z
 2. Optional: Project Settings → Script Properties → `SHEET_ID` = the id of the Sheet to use. If unset, a new "OYP JO System" spreadsheet is created in your Drive. Only the tabs Users, Sessions and AuditLog are added; nothing else is changed.
 3. Add Script Property `SEED_USERS` = `name:role:code,...` (sent privately). Select `setupAuth` in the editor and click **Run**, approve the new permission. It seeds the users (hashes only) and deletes `SEED_USERS`.
 4. **Deploy → Manage deployments → Edit → New version → Deploy** (keeps the same URL).
+
+## Customer portal + shop backend (Customers.gs) — one-time update
+Do this after the sign-in update above (it needs `Auth.gs`).
+1. In the Apps Script project, add a new script file named `Customers` and paste `apps-script/Customers.gs`.
+2. Replace `Auth.gs` with the version here. The only change is one line near the top of `handleAction_`:
+   `if (typeof handleCustomer_ === 'function' && isCustAction_(a)) return handleCustomer_(req); // Customers.gs`
+   (If you already pasted Auth.gs, just add that line right after `var a = req.action;`.)
+3. Select `setupCustomers` in the editor and click **Run**. Approve the new **Send email as you** permission (used only for the
+   6-digit sign-up and Forgot PIN codes a customer asks for). It adds four new tabs: Customers, CustomerSessions, CustomerLinks,
+   ShopItems. Existing tabs (Clients, JobOrders, Payments, Quotes, JobStages) are only read, never changed.
+4. **Deploy → Manage deployments → Edit → New version → Deploy** (same URL).
+
+Links: customers `https://oypjewelry-stack.github.io/oyp/my/`, shop `https://oypjewelry-stack.github.io/oyp/shop/`,
+admin screens in the back office under **Customers** and **Shop listings**.
+Email limit: Gmail allows about 100 automatic emails a day; the script caps itself at 80 codes/day, 3 per email per hour.
