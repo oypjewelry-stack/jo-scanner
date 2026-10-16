@@ -167,12 +167,35 @@ function detectQuad(cv, rgba, opts) {
     const nb = ([x, y]) => x < 0.006 || y < 0.006 || x > 0.994 || y > 0.994; c.cut = [0, 1, 2, 3].filter(i => nb(c.quad[i]) && nb(c.quad[(i + 1) % 4])).length;
     c.score = c.area * Math.pow(c.support, 1.5) * c.rect * c.asp * c.step * c.step * Math.pow(0.7, c.cut); }
   sup.delete();
+  // white-page gate: the inside must look like paper (bright, low chroma, brighter than the surround)
+  const wp = whiteStats(small, W, H);
+  for (const c of cands) c.white = wp(c.quad);
+  const keep = cands.filter(c => c.white.ok && c.area >= 0.12);
+  cands.length = 0; cands.push(...keep);
   [small, gray, blur, edges, tmp, hsv, rgb, k3, k7].forEach(m => m.delete()); ch.delete();
   if (!cands.length) return null;
   // consensus: prefer quads that several methods agree on
   for (const c of cands) c.votes = cands.filter(o => maxDist(o.quad, c.quad) < 0.03).length;
   cands.sort((a, b) => (b.score * (1 + 0.15 * Math.min(b.votes, 5))) - (a.score * (1 + 0.15 * Math.min(a.votes, 5))));
   const best = cands[0]; best.all = cands; best.confidence = confidence(best); return best;
+}
+function whiteStats(img, W, H) {
+  const d = img.data, ch = img.channels();
+  const at = (x, y) => { x = Math.max(0, Math.min(W - 1, x | 0)); y = Math.max(0, Math.min(H - 1, y | 0)); const i = (y * W + x) * ch;
+    const r = d[i], g = d[i + 1], b = d[i + 2], mx = Math.max(r, g, b), mn = Math.min(r, g, b); return [(r + g + b) / 3, mx - mn]; };
+  return q => {
+    const P = q.map(([x, y]) => [x * W, y * H]), c = P.reduce((a, p) => [a[0] + p[0] / 4, a[1] + p[1] / 4], [0, 0]);
+    const lum = [], chr = []; let out = 0, on = 0;
+    for (let u = 0.15; u <= 0.85; u += 0.07) for (let v = 0.15; v <= 0.85; v += 0.07) { // bilinear grid inside
+      const top = [P[0][0] + (P[1][0] - P[0][0]) * u, P[0][1] + (P[1][1] - P[0][1]) * u], bot = [P[3][0] + (P[2][0] - P[3][0]) * u, P[3][1] + (P[2][1] - P[3][1]) * u];
+      const [l, k] = at(top[0] + (bot[0] - top[0]) * v, top[1] + (bot[1] - top[1]) * v); lum.push(l); chr.push(k); }
+    for (const p of P) for (let k = 0; k < 4; k++) { const n = P[(P.indexOf(p) + 1) % 4], x = p[0] + (n[0] - p[0]) * (k + .5) / 4, y = p[1] + (n[1] - p[1]) * (k + .5) / 4;
+      const ox = x + (x - c[0]) * 0.08, oy = y + (y - c[1]) * 0.08; if (ox < 0 || oy < 0 || ox >= W || oy >= H) continue; out += at(ox, oy)[0]; on++; }
+    lum.sort((a, b) => a - b); chr.sort((a, b) => a - b);
+    const L = lum[lum.length >> 1], L75 = lum[(lum.length * 0.75) | 0], C = chr[chr.length >> 1], O = on ? out / on : null;
+    const ok = L75 >= 140 && L >= 110 && C <= 40 && (O == null || L - O >= 12 || on < 4);
+    return { ok, L: +L.toFixed(0), C: +C.toFixed(0), O: O == null ? null : +O.toFixed(0) };
+  };
 }
 function inter(e1, e2) {
   const [x1, y1] = e1.a, [x2, y2] = e1.b, [x3, y3] = e2.a, [x4, y4] = e2.b;

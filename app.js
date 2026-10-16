@@ -7,8 +7,8 @@ const qs = new URLSearchParams(location.search);
 if (qs.get('api')) localStorage.setItem(LS.api, qs.get('api'));
 if (qs.get('token')) localStorage.setItem(LS.token, qs.get('token'));
 
-const state = { jo: '', page: 0, stream: null, loop: null, lastQuad: null, steadySince: 0, cooldownUntil: 0, pages: [] };
-const MAX_PX = 2000, QUALITY = 0.85, STEADY_MS = 800, COOLDOWN_MS = 2500;
+const state = { jo: '', page: 0, stream: null, loop: null, lastQuad: null, steadySince: 0, armed: true, cooldownUntil: 0, pages: [] };
+const MAX_PX = 2000, QUALITY = 0.85, STEADY_MS = 900, COOLDOWN_MS = 2500;
 
 /* ---------- JO normalisation (shared logic with Code.gs) ---------- */
 function normJO(s) {
@@ -106,12 +106,19 @@ function loadCV() {
 window.addEventListener('load', () => setTimeout(() => loadCV().catch(() => {}), 600));
 
 const DW = 480;
+// tiny grayscale signature of the current frame, used to tell "same page still there" from "page flipped"
+const sigC = document.createElement('canvas'); sigC.width = 32; sigC.height = 24;
+function frameSig() { const c = sigC.getContext('2d', { willReadFrequently: true }); c.drawImage(video, 0, 0, 32, 24);
+  const d = c.getImageData(0, 0, 32, 24).data, o = new Float32Array(768); for (let i = 0; i < 768; i++) o[i] = (d[i * 4] + d[i * 4 + 1] + d[i * 4 + 2]) / 3; return o; }
+function sigDiff(a, b) { if (!a || !b) return 1; let t = 0; for (let i = 0; i < a.length; i++) t += Math.abs(a[i] - b[i]); return t / a.length / 255; }
+const SIG_CHANGE = 0.06;
+// hands-free state: armed = ready to snap the next page; disarmed after a snap until the page changes
 function detect(cv) {
   const vw = video.videoWidth, vh = video.videoHeight; if (!vw) return null;
   const s = DW / Math.max(vw, vh); work.width = Math.round(vw * s); work.height = Math.round(vh * s);
   const c = work.getContext('2d', { willReadFrequently: true }); c.drawImage(video, 0, 0, work.width, work.height);
   const m = cv.imread(work);
-  try { const r = CardDetector.detectQuad(cv, m, { size: DW }); state.lastConf = r ? r.confidence : 0; state.lastDet = r ? { s: r.support, r: r.rect, a: r.asp, st: r.step, v: r.votes, m: r.method, cut: r.cut } : null; return r ? r.quad : null; } finally { m.delete(); }
+  try { const r = CardDetector.detectQuad(cv, m, { size: DW }); state.lastConf = r ? r.confidence : 0; state.lastDet = r ? { s: r.support, r: r.rect, a: r.asp, st: r.step, v: r.votes, m: r.method, cut: r.cut, w: r.white } : null; return r ? r.quad : null; } finally { m.delete(); }
 }
 
 function drawQuad(q, ok) {
@@ -136,6 +143,7 @@ function runLoop() {
       let q = null; try { q = detect(cv); } catch (e) { console.warn(e); }
       busy = false;
       const now = Date.now();
+      if (!state.armed && (missCount >= LOST_FRAMES || sigDiff(frameSig(), state.snapSig) > SIG_CHANGE)) state.armed = true; // page removed / flipped
       if (!q) {
         if (++missCount < LOST_FRAMES && state.lastQuad) return; // ignore a single dropped frame
         state.lastQuad = null; state.steadySince = 0; drawQuad(null);
@@ -151,7 +159,7 @@ function runLoop() {
       state.lastQuad = sm;
       const steady = now - state.steadySince >= STEADY_MS;
       drawQuad(sm, steady);
-      if (now < state.cooldownUntil) { hint('Captured. Flip to the next page', true); return; }
+      if (now < state.cooldownUntil || !state.armed) { if (!state.armed && prev && moved > 0.08) state.armed = true; else { hint('Captured. Flip to the next page', true); return; } }
       if (!$('autoSnap').checked) { hint('Card found. Tap the shutter', true); return; }
       // smoothed detector confidence over recent frames; temporal stability adds the rest
       state.confAvg = state.confAvg == null ? state.lastConf : state.confAvg * 0.6 + state.lastConf * 0.4;
@@ -169,6 +177,7 @@ const enhanceOn = () => localStorage.getItem('enhance') !== '0';
 $('btnCapture').onclick = () => capture(state.lastQuad, false);
 function capture(quad, auto, conf) {
   if (!video.videoWidth || review.open) return;
+  state.armed = false; state.snapSig = frameSig(); state.snaps = (state.snaps || 0) + 1;
   const vw = video.videoWidth, vh = video.videoHeight;
   const src = document.createElement('canvas'); src.width = vw; src.height = vh; src.getContext('2d').drawImage(video, 0, 0);
   if (navigator.vibrate) navigator.vibrate(40);
@@ -178,7 +187,7 @@ function capture(quad, auto, conf) {
   if (quad && window.cv && window.cv.Mat) { // snap detected corners to the true card edges + small inset
     raw = q.map(p => p.slice());
     try { const m = cv.imread(src); const r = CardDetector.refineQuad(cv, m, CardDetector.order(q)); m.delete(); q.splice(0, 4, ...r); } catch (e) { console.warn('refine', e); } }
-  const why = auto && quad ? gateReason(state.lastDet, quad, raw, q) : 'manual'; state.gateWhy = why; state.gateDbg = { q: CardDetector.order(quad).map(p => p.map(v => +v.toFixed(3))), rf: +CardDetector.maxDist(CardDetector.order(raw), CardDetector.order(q)).toFixed(3) };
+  const why = auto && quad ? gateReason(state.lastDet, quad, raw, q) : 'manual'; state.gateWhy = why; state.gateDbg = quad && { q: CardDetector.order(quad).map(p => p.map(v => +v.toFixed(3))), rf: +CardDetector.maxDist(CardDetector.order(raw), CardDetector.order(q)).toFixed(3) };
   if (auto && quad && conf >= AUTO_ACCEPT && !why) { const pg = savePage(src, CardDetector.order(q)); showToast(pg, src, q); state.cooldownUntil = Date.now() + COOLDOWN_MS; state.steadySince = Date.now(); return; }
   openReview(src, q, !!quad);
 }
