@@ -32,7 +32,8 @@ $('btnStart').onclick = async () => {
   state.jo = jo; state.page = 0; state.pages = [];
   $('joLabel').textContent = jo; $('pages').innerHTML = ''; updatePageLabel();
   $('startView').classList.add('hidden'); $('scanView').classList.remove('hidden');
-  await startCamera();
+  const b = $('btnStart'); b.textContent = 'SCAN'; b.classList.remove('pulse');
+  try { await startCamera(); } catch (e) { console.error(e); hint('Could not start: ' + (e.message || e)); }
 };
 $('joInput').addEventListener('keydown', e => { if (e.key === 'Enter') $('btnStart').click(); });
 $('btnDone').onclick = () => {
@@ -45,17 +46,32 @@ function updatePageLabel() { $('pageLabel').textContent = state.page ? state.pag
 
 /* ---------- camera ---------- */
 const video = $('video'), overlay = $('overlay'), work = $('work');
+const liveStream = () => state.stream && state.stream.active && state.stream.getVideoTracks().some(t => t.readyState === 'live');
+let acquiring = null;
+function acquireStream() { // one getUserMedia at a time; reuse a live stream
+  if (liveStream()) return Promise.resolve(state.stream);
+  if (acquiring) return acquiring;
+  acquiring = navigator.mediaDevices.getUserMedia({ audio: false,
+    video: { facingMode: { ideal: 'environment' }, width: { ideal: 2560 }, height: { ideal: 1920 } } })
+    .then(s => { state.stream = s; video.srcObject = s; video.muted = true; return s; })
+    .finally(() => { acquiring = null; });
+  return acquiring;
+}
+// called synchronously from the mic tap (user gesture) so iOS allows the camera
+window.prewarmCamera = () => acquireStream().then(() => { video.play().catch(() => {}); return true; })
+  .catch(e => { console.error('camera prewarm failed', e); state.camError = e; return false; });
+window.askTapToStart = () => { const b = $('btnStart'); b.textContent = 'SCAN'; b.classList.add('pulse'); b.focus(); };
 async function startCamera() {
-  if (state.stream && state.stream.active) { runLoop(); return; }
   try {
-    state.stream = await navigator.mediaDevices.getUserMedia({ audio: false,
-      video: { facingMode: { ideal: 'environment' }, width: { ideal: 2560 }, height: { ideal: 1920 } } });
-    video.srcObject = state.stream; await video.play();
+    await acquireStream();
+    if (video.srcObject !== state.stream) video.srcObject = state.stream;
+    await video.play();
     hint('Align the card inside the frame');
     runLoop();
   } catch (e) {
+    console.error('startCamera failed', e); state.camError = e;
     // iOS can refuse camera start outside a tap (e.g. after voice); let the user tap the preview to retry
-    hint('Tap here to start the camera'); const h = $('hint');
+    hint('Camera blocked (' + (e && (e.name || e.message) || 'error') + '). Tap here to start the camera'); const h = $('hint');
     const retry = () => { h.removeEventListener('click', retry); video.removeEventListener('click', retry); startCamera(); };
     h.style.pointerEvents = 'auto'; h.addEventListener('click', retry); video.addEventListener('click', retry);
   }
@@ -157,6 +173,8 @@ function capture(quad, auto, conf) {
   if (navigator.vibrate) navigator.vibrate(40);
   const q = quad ? quad.map(p => p.slice()) : [[0.08, 0.08], [0.92, 0.08], [0.92, 0.92], [0.08, 0.92]];
   if (!$('doCrop').checked) return savePage(src, null);
+  if (quad && window.cv && window.cv.Mat) { // snap detected corners to the true card edges + small inset
+    try { const m = cv.imread(src); const r = CardDetector.refineQuad(cv, m, CardDetector.order(q)); m.delete(); q.splice(0, 4, ...r); } catch (e) { console.warn('refine', e); } }
   if (auto && quad && conf >= AUTO_ACCEPT) { const pg = savePage(src, CardDetector.order(q)); showToast(pg, src, q); state.cooldownUntil = Date.now() + COOLDOWN_MS; state.steadySince = Date.now(); return; }
   openReview(src, q, !!quad);
 }
@@ -223,6 +241,7 @@ function renderOut(src, quad, enh, maxPx) {
   if (quad) out = warp(src, quad, maxPx);
   else { const s = Math.min(1, maxPx / Math.max(src.width, src.height)); out = document.createElement('canvas'); out.width = Math.round(src.width * s); out.height = Math.round(src.height * s); out.getContext('2d').drawImage(src, 0, 0, out.width, out.height); }
   const cv = window.cv;
+  if (quad && cv && cv.Mat) { try { const m = cv.imread(out), d = CardDetector.deskew(cv, m); cv.imshow(out, d.mat); m.delete(); d.mat.delete(); } catch (err) { console.warn(err); } }
   if (enh && cv && cv.Mat) { try { const m = cv.imread(out), e = CardDetector.enhance(cv, m); cv.imshow(out, e); m.delete(); e.delete(); } catch (err) { console.warn(err); } }
   return out;
 }

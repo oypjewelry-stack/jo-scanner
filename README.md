@@ -25,7 +25,7 @@ Open the page on the iPhone, tap Settings, paste the Web app URL and the token, 
 `https://YOUR-SITE/?api=WEB_APP_URL&token=SECRET`
 
 ## 4. Use it
-1. Type the JO number (`26-001`, `JO 26-001` and `26,001` are all accepted), then tap **Start card**. Allow camera access once. The stream stays open, so you won't be asked again for each shot or for the next card.
+1. Type the JO number (`26-001`, `JO 26-001` and `26,001` are all accepted), then tap **SCAN**. Allow camera access once. The stream stays open, so you won't be asked again for each shot or for the next card.
 2. Lay the card on a **dark surface**. Once the outline turns gold and the card is held steady for about 1 second, the app snaps the page automatically. You can also tap the big button. **Crop** straightens the page; turn it off to keep the full frame.
 3. Flip to the next page. Each page shows its upload status: *Saved ✓ JO verified*, *no JO read* (normal for back pages), or an amber **mismatch** warning showing the number the card actually reads. Tap **Retry** after a failed upload.
 4. Tap **Done with this card**, then type the next JO number.
@@ -38,7 +38,7 @@ Tip: add the page to the Home Screen from Safari's Share menu so it opens full-s
 - Edge detection is a lightweight on-device brightness/contour check with no libraries, and it works best with a light card on a dark background.
 
 ## Voice input
-Tap the gold mic button beside the JO box and say the number ("twenty six zero zero one", "two six oh oh one", "JO 26 001"). It fills in `26-001` and, if "Start card automatically" is ticked, starts the card. If the browser lacks speech recognition the button is hidden; keyboard dictation still works.
+Tap the gold mic button beside the JO box and say the number ("twenty six zero zero one", "two six oh oh one", "JO 26 001"). It fills in `26-001` (short forms like "26 1" become `26-001`) and always starts scanning; the camera is opened during the mic tap so iOS allows it. If the browser lacks speech recognition the button is hidden; keyboard dictation still works.
 
 ## Card detection (v2)
 - Detection uses OpenCV.js (loaded from jsDelivr after the page opens; "Loading detector…" shows until ready). It tries Canny edges, brightness/saturation thresholds and adaptive threshold on a 480px frame, keeps the best 4-corner shape, smooths it across frames, and auto-snaps after ~0.8 s steady.
