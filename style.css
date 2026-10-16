@@ -95,3 +95,11 @@ dialog .row button{flex:1;margin-top:0}
 .rvbar button{flex:1;margin-top:0;min-height:58px}
 .rvbar button.ghost{background:transparent;color:#fff;border-color:#666}
 .rvbar button.primary{background:var(--gold);color:#111}
+
+.rvopts{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 16px}
+.rvopts .enh{font-size:15px;display:flex;align-items:center;gap:8px}
+.rvpreview{height:72px;max-width:45%;object-fit:contain;border:1px solid rgba(255,255,255,.25);background:#111}
+.toast{position:fixed;left:50%;bottom:110px;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:12px;background:rgba(20,20,20,.92);color:#fff;padding:8px 10px 8px 8px;border-radius:12px;box-shadow:0 6px 24px rgba(0,0,0,.4)}
+.toast img{height:56px;border-radius:4px}
+.toast button{padding:6px 12px}
+.rvopts{color:#eee}

@@ -6,7 +6,7 @@
 <title>OYP Card Scanner</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Libre+Bodoni:wght@400;500;600&family=Bodoni+Moda:opsz,wght@6..96,400;6..96,500&family=Inter:wght@500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=1792155696">
+<link rel="stylesheet" href="style.css?v=1792156288">
 <link rel="icon" type="image/png" href="favicon.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 </head><body>
@@ -59,10 +59,12 @@
     <svg id="rvLines" class="rvlines"></svg>
     <div class="handle"></div><div class="handle"></div><div class="handle"></div><div class="handle"></div>
   </div>
+  <div class="rvopts"><label class="enh"><input type="checkbox" id="rvEnhance" checked> Enhance</label><img id="rvPreview" class="rvpreview" alt="Preview"></div>
   <div class="rvbar"><button id="rvRetake" class="ghost">Retake</button><button id="rvNoCrop" class="ghost">No crop</button><button id="rvUse" class="primary">Use</button></div>
 </div>
 <canvas id="work" class="hidden"></canvas>
-<script src="detector.js?v=1792155696"></script>
-<script src="app.js?v=1792155696"></script>
-<script src="voice.js?v=1792155696"></script>
+<div id="toast" class="toast hidden"><img id="toastImg" alt=""><span>Saved</span><button id="toastAdjust" class="ghost">Adjust</button></div>
+<script src="detector.js?v=1792156288"></script>
+<script src="app.js?v=1792156288"></script>
+<script src="voice.js?v=1792156288"></script>
 </body></html>

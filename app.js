@@ -95,7 +95,7 @@ function detect(cv) {
   const s = DW / Math.max(vw, vh); work.width = Math.round(vw * s); work.height = Math.round(vh * s);
   const c = work.getContext('2d', { willReadFrequently: true }); c.drawImage(video, 0, 0, work.width, work.height);
   const m = cv.imread(work);
-  try { const r = CardDetector.detectQuad(cv, m, { size: DW }); return r ? r.quad : null; } finally { m.delete(); }
+  try { const r = CardDetector.detectQuad(cv, m, { size: DW }); state.lastConf = r ? r.confidence : 0; state.lastDet = r ? { s: r.support, r: r.rect, a: r.asp, st: r.step, v: r.votes, m: r.method } : null; return r ? r.quad : null; } finally { m.delete(); }
 }
 
 function drawQuad(q, ok) {
@@ -136,29 +136,50 @@ function runLoop() {
       drawQuad(sm, steady);
       if (now < state.cooldownUntil) { hint('Captured. Flip to the next page', true); return; }
       if (!$('autoSnap').checked) { hint('Card found. Tap the shutter', true); return; }
-      if (steady) capture(sm, true); else hint('Card found. Hold steady…');
+      // smoothed detector confidence over recent frames; temporal stability adds the rest
+      state.confAvg = state.confAvg == null ? state.lastConf : state.confAvg * 0.6 + state.lastConf * 0.4;
+      if (steady) capture(sm, true, finalConfidence(state.confAvg, now - state.steadySince)); else hint('Card found. Hold steady…');
     }, 120);
   }).catch(() => hint('Detector unavailable: tap the shutter and set corners by hand'));
 }
 
 /* ---------- capture -> review (draggable corners) -> warp ---------- */
-const review = { open: false, src: null, quad: null };
+const review = { open: false, src: null, quad: null, replace: null };
+// Auto-accept: final = 0.85 * detector confidence + 0.15 * stability (1.0 once steady >= STEADY_MS)
+const AUTO_ACCEPT = 0.80;
+function finalConfidence(det, steadyMs) { return 0.85 * (det || 0) + 0.15 * Math.min(1, steadyMs / STEADY_MS); }
+const enhanceOn = () => localStorage.getItem('enhance') !== '0';
 $('btnCapture').onclick = () => capture(state.lastQuad, false);
-function capture(quad, auto) {
+function capture(quad, auto, conf) {
   if (!video.videoWidth || review.open) return;
   const vw = video.videoWidth, vh = video.videoHeight;
   const src = document.createElement('canvas'); src.width = vw; src.height = vh; src.getContext('2d').drawImage(video, 0, 0);
   if (navigator.vibrate) navigator.vibrate(40);
   const q = quad ? quad.map(p => p.slice()) : [[0.08, 0.08], [0.92, 0.08], [0.92, 0.92], [0.08, 0.92]];
   if (!$('doCrop').checked) return savePage(src, null);
+  if (auto && quad && conf >= AUTO_ACCEPT) { const pg = savePage(src, CardDetector.order(q)); showToast(pg, src, q); state.cooldownUntil = Date.now() + COOLDOWN_MS; state.steadySince = Date.now(); return; }
   openReview(src, q, !!quad);
 }
-function openReview(src, q, found) {
-  review.open = true; review.src = src; review.quad = q;
+let toastTimer = null;
+function showToast(pg, src, q) {
+  const t = $('toast'); $('toastImg').src = pg.dataUrl; t.classList.remove('hidden');
+  $('toastAdjust').onclick = () => { clearTimeout(toastTimer); t.classList.add('hidden'); openReview(src, q.map(p => p.slice()), true, pg); };
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.add('hidden'), 1600);
+}
+function openReview(src, q, found, replace) {
+  review.open = true; review.src = src; review.quad = q; review.replace = replace || null;
+  $('rvEnhance').checked = enhanceOn();
   $('rvTitle').textContent = found ? 'Check the crop' : 'Card not found: drag the corners';
   $('review').classList.remove('hidden');
-  requestAnimationFrame(layoutReview);
+  requestAnimationFrame(() => { layoutReview(); updatePreview(); });
 }
+let pvTimer = null;
+function updatePreview() { // live preview of the final crop (with/without enhancement)
+  clearTimeout(pvTimer); pvTimer = setTimeout(() => {
+    if (!review.open) return; const c = renderOut(review.src, CardDetector.order(review.quad.map(p => p.slice())), $('rvEnhance').checked, 700);
+    $('rvPreview').src = c.toDataURL('image/jpeg', 0.7); }, 120);
+}
+$('rvEnhance').onchange = () => { localStorage.setItem('enhance', $('rvEnhance').checked ? '1' : '0'); updatePreview(); };
 function rvGeom() {
   const box = $('rvStage').getBoundingClientRect(), W = review.src.width, H = review.src.height;
   const s = Math.min(box.width / W, box.height / H);
@@ -187,32 +208,41 @@ document.querySelectorAll('#rvStage .handle').forEach((h, i) => {
   h.addEventListener('pointermove', e => { if (!off) return; const g = rvGeom(), box = $('rvStage').getBoundingClientRect();
     const x = (e.clientX - off[0] - box.left - g.ox) / (g.W * g.s), y = (e.clientY - off[1] - box.top - g.oy) / (g.H * g.s);
     review.quad[i] = [Math.min(1, Math.max(0, x)), Math.min(1, Math.max(0, y))]; drawReview(); });
-  const up = () => { off = null; h.classList.remove('drag'); };
+  const up = () => { off = null; h.classList.remove('drag'); updatePreview(); };
   h.addEventListener('pointerup', up); h.addEventListener('pointercancel', up);
 });
 window.addEventListener('resize', () => { if (review.open) layoutReview(); });
 function closeReview() { review.open = false; $('review').classList.add('hidden'); state.cooldownUntil = Date.now() + COOLDOWN_MS; state.steadySince = Date.now(); }
 $('rvRetake').onclick = () => { closeReview(); state.cooldownUntil = 0; };
-$('rvNoCrop').onclick = () => { const s = review.src; closeReview(); savePage(s, null); };
+$('rvNoCrop').onclick = () => { const s = review.src, r = review.replace; closeReview(); savePage(s, null, r); };
 $('rvUse').onclick = () => {
-  const s = review.src, q = CardDetector.order(review.quad.map(p => p.slice())); closeReview(); savePage(s, q);
+  const s = review.src, r = review.replace, q = CardDetector.order(review.quad.map(p => p.slice())); closeReview(); savePage(s, q, r);
 };
-function savePage(src, quad) {
+function renderOut(src, quad, enh, maxPx) {
   let out;
-  if (quad) out = warp(src, quad);
-  else { const s = Math.min(1, MAX_PX / Math.max(src.width, src.height)); out = document.createElement('canvas'); out.width = Math.round(src.width * s); out.height = Math.round(src.height * s); out.getContext('2d').drawImage(src, 0, 0, out.width, out.height); }
-  const dataUrl = out.toDataURL('image/jpeg', QUALITY);
+  if (quad) out = warp(src, quad, maxPx);
+  else { const s = Math.min(1, maxPx / Math.max(src.width, src.height)); out = document.createElement('canvas'); out.width = Math.round(src.width * s); out.height = Math.round(src.height * s); out.getContext('2d').drawImage(src, 0, 0, out.width, out.height); }
+  const cv = window.cv;
+  if (enh && cv && cv.Mat) { try { const m = cv.imread(out), e = CardDetector.enhance(cv, m); cv.imshow(out, e); m.delete(); e.delete(); } catch (err) { console.warn(err); } }
+  return out;
+}
+function savePage(src, quad, replace) {
+  const enh = enhanceOn(), out = renderOut(src, quad, enh, MAX_PX);
+  const dataUrl = out.toDataURL('image/jpeg', enh ? 0.8 : QUALITY);
+  if (replace) { // re-crop of an already saved page: same filename, upload again (backend replaces it)
+    replace.dataUrl = dataUrl; replace.status = 'queued'; if (replace.el) replace.el.remove(); addRow(replace); upload(replace); return replace; }
   state.page++; updatePageLabel();
   const pg = { jo: state.jo, page: state.page, filename: `${state.jo}-p${state.page}.jpg`, dataUrl, status: 'queued' };
-  state.pages.push(pg); addRow(pg); upload(pg);
+  state.pages.push(pg); addRow(pg); upload(pg); return pg;
 }
-function warp(src, q) { // full-resolution perspective warp; OpenCV if loaded, else pure JS fallback
+function warp(src, q, maxPx) {
+  maxPx = maxPx || MAX_PX; // full-resolution perspective warp; OpenCV if loaded, else pure JS fallback
   const cv = window.cv;
   if (cv && cv.Mat) {
-    const m = cv.imread(src), o = CardDetector.warpQuad(cv, m, q, MAX_PX), c = document.createElement('canvas');
+    const m = cv.imread(src), o = CardDetector.warpQuad(cv, m, q, maxPx), c = document.createElement('canvas');
     cv.imshow(c, o); m.delete(); o.delete(); return c;
   }
-  return warpJS(src, q.map(([x, y]) => [x * src.width, y * src.height]));
+  return warpJS(src, q.map(([x, y]) => [x * src.width, y * src.height]), maxPx);
 }
 function homography(s, d) { // maps d -> s (8 unknowns, Gaussian elimination)
   const A = [], b = [];
@@ -223,10 +253,10 @@ function homography(s, d) { // maps d -> s (8 unknowns, Gaussian elimination)
     for (let r = 0; r < 8; r++) if (r !== i) { const f = A[r][i] / A[i][i]; for (let c = i; c < 8; c++) A[r][c] -= f * A[i][c]; b[r] -= f * b[i]; } }
   return b.map((v, i) => v / A[i][i]).concat(1);
 }
-function warpJS(src, q) {
+function warpJS(src, q, maxPx) {
   const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
   let W = Math.max(dist(q[0], q[1]), dist(q[3], q[2])), H = Math.max(dist(q[0], q[3]), dist(q[1], q[2]));
-  const s = Math.min(1, MAX_PX / Math.max(W, H)); W = Math.round(W * s); H = Math.round(H * s);
+  const s = Math.min(1, (maxPx || MAX_PX) / Math.max(W, H)); W = Math.round(W * s); H = Math.round(H * s);
   const h = homography(q, [[0, 0], [W, 0], [W, H], [0, H]]);
   const sd = src.getContext('2d').getImageData(0, 0, src.width, src.height).data, sw = src.width, sh = src.height;
   const out = document.createElement('canvas'); out.width = W; out.height = H;
@@ -237,7 +267,7 @@ function warpJS(src, q) {
     o[di] = sd[si]; o[di + 1] = sd[si + 1]; o[di + 2] = sd[si + 2]; o[di + 3] = 255; }
   oc.putImageData(od, 0, 0); return out;
 }
-window.__scan = { state, review, openReview, capture };
+window.__scan = { state, review, openReview, capture, finalConfidence, AUTO_ACCEPT };
 
 /* ---------- list + upload ---------- */
 function addRow(pg) {
