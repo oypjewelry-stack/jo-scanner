@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="theme-color" content="#ffffff">
+<title>OYP JO Card Scanner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Playfair+Display:ital,wght@0,600;1,600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head><body>
+<header class="top"><span class="logo"><b></b>yp</span><span class="title serif">JO Card Scanner</span><button id="btnSettings" class="icon" aria-label="Settings">&#9881;</button></header>
+
+<section id="startView" class="view">
+  <h1>Scan a job order card</h1>
+  <p class="muted">Type the JO number once, then photograph each page as you flip.</p>
+  <label for="joInput" class="lbl">JO number</label>
+  <input id="joInput" class="big" inputmode="text" autocomplete="off" autocapitalize="characters" placeholder="26-001">
+  <button id="btnStart" class="primary">Start card</button>
+  <p id="apiWarn" class="warn hidden">No backend URL set yet. Tap &#9881; to add it (pages are kept on this phone until then).</p>
+</section>
+
+<section id="scanView" class="view hidden">
+  <div class="jobar"><span>JO <strong id="joLabel"></strong></span><span id="pageLabel" class="muted"></span></div>
+  <div class="stage">
+    <video id="video" playsinline muted autoplay></video>
+    <canvas id="overlay"></canvas>
+    <div class="guide"></div>
+    <div id="hint" class="hint">Starting camera…</div>
+  </div>
+  <div class="controls">
+    <label class="toggle"><input type="checkbox" id="autoSnap" checked> Auto-snap</label>
+    <button id="btnCapture" class="shutter" aria-label="Capture page"></button>
+    <label class="toggle"><input type="checkbox" id="doCrop" checked> Crop</label>
+  </div>
+  <ul id="pages" class="pages"></ul>
+  <button id="btnDone" class="primary">Done with this card</button>
+</section>
+
+<dialog id="settings">
+  <form method="dialog">
+    <h2>Settings</h2>
+    <label class="lbl">Apps Script web app URL</label>
+    <input id="apiUrl" class="mid" placeholder="https://script.google.com/macros/s/…/exec">
+    <label class="lbl">Shared token (optional)</label>
+    <input id="apiToken" class="mid" placeholder="token">
+    <div class="row"><button value="cancel" class="ghost">Cancel</button><button id="btnSave" value="save" class="primary">Save</button></div>
+  </form>
+</dialog>
+<canvas id="work" class="hidden"></canvas>
+<script src="app.js"></script>
+</body></html>
