@@ -6,7 +6,7 @@
 <title>OYP Card Scanner</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Libre+Bodoni:wght@400;500;600&family=Bodoni+Moda:opsz,wght@6..96,400;6..96,500&family=Inter:wght@500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=1792156288">
+<link rel="stylesheet" href="style.css?v=1792156545">
 <link rel="icon" type="image/png" href="favicon.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 </head><body>
@@ -14,13 +14,13 @@
 
 <section id="startView" class="view">
   <h1>Scan a job order card</h1>
-  <p class="muted">Type the JO number once, then photograph each page as you flip.</p>
+  <p class="muted help">Type the JO number once, then photograph each page as you flip.</p>
   <label for="joInput" class="lbl">JO number</label>
   <div class="jorow">
     <input id="joInput" class="big" inputmode="text" autocomplete="off" autocapitalize="characters" placeholder="26-001">
     <button id="btnMic" class="mic hidden" type="button" aria-label="Say the JO number" aria-pressed="false"><svg viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg></button>
   </div>
-  <label class="toggle"><input id="micAuto" type="checkbox" checked> Start card automatically after speaking</label>
+  <label class="toggle autostart"><input id="micAuto" type="checkbox" checked> Start card automatically after speaking</label>
   <button id="btnStart" class="primary">Start card</button>
   <p id="apiWarn" class="warn hidden">No backend URL set yet. Tap Settings to add it (pages are kept on this phone until then).</p>
 </section>
@@ -64,7 +64,7 @@
 </div>
 <canvas id="work" class="hidden"></canvas>
 <div id="toast" class="toast hidden"><img id="toastImg" alt=""><span>Saved</span><button id="toastAdjust" class="ghost">Adjust</button></div>
-<script src="detector.js?v=1792156288"></script>
-<script src="app.js?v=1792156288"></script>
-<script src="voice.js?v=1792156288"></script>
+<script src="detector.js?v=1792156545"></script>
+<script src="app.js?v=1792156545"></script>
+<script src="voice.js?v=1792156545"></script>
 </body></html>

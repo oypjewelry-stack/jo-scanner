@@ -103,3 +103,5 @@ dialog .row button{flex:1;margin-top:0}
 .toast img{height:56px;border-radius:4px}
 .toast button{padding:6px 12px}
 .rvopts{color:#eee}
+/* owner: instructions + auto-start label in Inter 500 16px */
+#startView .help, .toggle.autostart{font-family:Inter,Helvetica,sans-serif;font-weight:500;font-size:16px;text-transform:none;letter-spacing:normal}
