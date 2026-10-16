@@ -250,7 +250,7 @@ function refineQuad(cv, rgba, q, opts) {
   cv.cvtColor(sm, g, cv.COLOR_RGBA2GRAY); cv.GaussianBlur(g, g, new cv.Size(3, 3), 0); sm.delete();
   const W = g.cols, H = g.rows, d = g.data, px = (x, y) => { x = Math.max(0, Math.min(W - 1, x | 0)); y = Math.max(0, Math.min(H - 1, y | 0)); return d[y * W + x]; };
   const P = q.map(([x, y]) => [x * W, y * H]), c = P.reduce((a, p) => [a[0] + p[0] / 4, a[1] + p[1] / 4], [0, 0]);
-  const R = Math.round(Math.max(W, H) * 0.02), lines = [];
+  const R = Math.round(Math.max(W, H) * 0.06), lines = [];
   for (let i = 0; i < 4; i++) {
     const a = P[i], b = P[(i + 1) % 4], L = Math.hypot(b[0] - a[0], b[1] - a[1]);
     let nx = -(b[1] - a[1]) / L, ny = (b[0] - a[0]) / L; const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
@@ -267,35 +267,55 @@ function refineQuad(cv, rgba, q, opts) {
           if (xo < 0 || yo < 0 || xo >= W || yo >= H) { ok = false; break; }
           si += px(x0 + nx * (t + u), y0 + ny * (t + u)); so += px(xo, yo); }
         if (!ok) continue; const st = (si - so) / 4; if (st > best) { best = st; bt = t; } }
-      if (bt !== null && best > 12) { const p = [x0 + nx * bt, y0 + ny * bt]; p.k = k; pts.push(p); }
+      if (bt !== null && best > 12 && Math.abs(bt) < R - 1) { const p = [x0 + nx * bt, y0 + ny * bt]; p.k = k; pts.push(p); }
     }
-    const fit = (pp, minFrac) => { // RANSAC-lite: best pair consensus, then least squares on inliers
-      if (pp.length < 6) return null; let bestIn = [];
+    const fit = (pp, minFrac, maxDeg) => { // RANSAC-lite: best pair consensus, then least squares on inliers
+      if (pp.length < 6) return null; let bestIn = [], bestOff = 0;
       for (let it = 0; it < 80; it++) { const p = pp[(it * 7) % pp.length], r = pp[(it * 13 + 5) % pp.length];
         const l = Math.hypot(r[0] - p[0], r[1] - p[1]); if (l < L * 0.15) continue;
         const ux = (r[0] - p[0]) / l, uy = (r[1] - p[1]) / l;
-        const inl = pp.filter(z => Math.abs((z[0] - p[0]) * uy - (z[1] - p[1]) * ux) < 1.5);
-        if (inl.length > bestIn.length) bestIn = inl; }
-      if (bestIn.length < Math.max(6, pp.length * minFrac)) return null;
+        const inl = pp.filter(z => Math.abs((z[0] - p[0]) * uy - (z[1] - p[1]) * ux) < 3);
+        if (inl.length < Math.max(6, pp.length * minFrac)) continue;
+        // among well-supported lines prefer the OUTERMOST: printed frame lines sit inside the card
+        const off = inl.reduce((s2, z) => s2 + (z[0] - a[0]) * nx + (z[1] - a[1]) * ny, 0) / inl.length;
+        if (off < -15) continue; // outward candidates are sheets/table, not this card
+        if (!bestIn.length || off < bestOff - 6 || (Math.abs(off - bestOff) <= 6 && inl.length > bestIn.length)) { bestIn = inl; bestOff = off; } }
+      if (!bestIn.length) return null;
       const n = bestIn.length, mx2 = bestIn.reduce((s, z) => s + z[0], 0) / n, my2 = bestIn.reduce((s, z) => s + z[1], 0) / n;
       let sxx = 0, sxy = 0, syy = 0; for (const [x, y] of bestIn) { sxx += (x - mx2) ** 2; sxy += (x - mx2) * (y - my2); syy += (y - my2) ** 2; }
       const ang = 0.5 * Math.atan2(2 * sxy, sxx - syy), ux = Math.cos(ang), uy = Math.sin(ang);
       const cosd = Math.abs(ux * (b[0] - a[0]) / L + uy * (b[1] - a[1]) / L); // reject refits rotating the side > 5 deg
-      return cosd > Math.cos(5 * Math.PI / 180) ? { a: [mx2, my2], b: [mx2 + ux * 100, my2 + uy * 100], n: [nx, ny], cnt: n } : null;
+      return cosd > Math.cos((maxDeg || 4) * Math.PI / 180) ? { a: [mx2, my2], b: [mx2 + ux * 100, my2 + uy * 100], n: [nx, ny], cnt: n } : null;
     };
     // whole side first; if one end is hidden under another sheet, fit the visible half alone
-    let line = fit(pts, 0.25);
-    if (!line) { const h1 = fit(pts.filter(p => p.k < 0.5), 0.6), h2 = fit(pts.filter(p => p.k >= 0.5), 0.6);
+    if (opts.debug) opts.debug.push({ i, pts: pts.map(p => [p.k.toFixed(2), Math.round((p[0] - a[0]) * nx + (p[1] - a[1]) * ny)]) });
+    let line = fit(pts, 0.2, 4);
+    if (!line) { const h1 = fit(pts.filter(p => p.k < 0.5), 0.5, 6), h2 = fit(pts.filter(p => p.k >= 0.5), 0.5, 6);
       line = h1 && h2 ? (h1.cnt >= h2.cnt ? h1 : h2) : (h1 || h2); }
-    lines.push(line || { a, b, n: [nx, ny] });
+    if (line) { // never move a side outward (that is how table/sheet gets into the crop)
+      const offAt = k => { const x = a[0] + (b[0] - a[0]) * k, y = a[1] + (b[1] - a[1]) * k; // distance from side point to refit line along n
+        const dx = line.b[0] - line.a[0], dy = line.b[1] - line.a[1], den = dx * ny - dy * nx; if (Math.abs(den) < 1e-6) return 0;
+        return ((line.a[0] - x) * dy - (line.a[1] - y) * dx) / -den; };
+      const o1 = offAt(0.05), o2 = offAt(0.95);
+      if (Math.min(o1, o2) < -15 || Math.max(o1, o2) > Math.max(W, H) * 0.09) line = null; }
+    if (opts.debug) opts.debug[opts.debug.length - 1].ok = !!line;
+    lines.push(line || { a: P[i], b: P[(i + 1) % 4], n: [nx, ny] });
   }
+  // rectangle constraint: a refit must not make a side LESS parallel to its opposite side
+  // (that happens when a white sheet hides one end and the fit follows the sheet instead)
+  const dirOf = l => Math.atan2(l.b[1] - l.a[1], l.b[0] - l.a[0]);
+  const angD = (x, y) => { let d = Math.abs(x - y) % Math.PI; return Math.min(d, Math.PI - d) * 180 / Math.PI; };
+  const orig = [0, 1, 2, 3].map(i => ({ a: P[i], b: P[(i + 1) % 4] }));
+  for (let i = 0; i < 4; i++) { const j = (i + 2) % 4; if (lines[i].a === P[i]) continue;
+    const before = angD(dirOf(orig[i]), dirOf(orig[j])), after = angD(dirOf(lines[i]), dirOf(lines[j]));
+    if (after > before + 2) lines[i] = { a: P[i], b: P[(i + 1) % 4], n: lines[i].n }; }
   // inset each side inward by a fraction of the card size
   const size = Math.sqrt(area(P));
   const sh = lines.map(l => { const o = size * inset; return { a: [l.a[0] + l.n[0] * o, l.a[1] + l.n[1] * o], b: [l.b[0] + l.n[0] * o, l.b[1] + l.n[1] * o] }; });
   const out = []; for (let i = 0; i < 4; i++) { const X = inter(sh[(i + 3) % 4], sh[i]); if (!X) { g.delete(); return q; } out.push(X); }
   g.delete();
   const r = order(out).map(([x, y]) => [Math.min(1, Math.max(0, x / W)), Math.min(1, Math.max(0, y / H))]);
-  return maxDist(r, q) > 0.06 || !angleOk(r) ? q : r; // safety: never jump far from the detection
+  return maxDist(r, q) > 0.15 || !angleOk(r) ? q : r; // safety: never jump far from the detection
 }
 // Residual skew of a warped card from its printed lines (degrees, + = clockwise needed)
 function measureSkew(cv, rgba) {
@@ -322,6 +342,35 @@ function deskew(cv, rgba, maxDeg) {
   cv.warpAffine(rgba, out, M2, new cv.Size(W, H), cv.INTER_LINEAR, cv.BORDER_REPLICATE); M.delete(); M2.delete();
   return { mat: out, angle: a };
 }
+
+// Last line of defence after warp+deskew: trim edge rows/columns that still contain background
+// (areas clearly darker than the paper after removing thin printed lines). Max 8% per side.
+function trimBackground(cv, rgba, opts) {
+  opts = opts || {}; const maxFrac = opts.maxFrac || 0.08;
+  const sc = 600 / Math.max(rgba.cols, rgba.rows), sm = new cv.Mat(), g = new cv.Mat(), b = new cv.Mat();
+  cv.resize(rgba, sm, new cv.Size(Math.round(rgba.cols * sc), Math.round(rgba.rows * sc)), 0, 0, cv.INTER_AREA);
+  cv.cvtColor(sm, g, cv.COLOR_RGBA2GRAY); cv.medianBlur(g, b, 9);
+  const W = b.cols, H = b.rows, d = b.data, c = [];
+  for (let y = H * 0.25 | 0; y < H * 0.75; y += 4) for (let x = W * 0.25 | 0; x < W * 0.75; x += 4) c.push(d[y * W + x]);
+  c.sort((p, q) => p - q); const ref = c[c.length * 0.8 | 0], thr = ref * 0.8;
+  // background = large dark blobs: threshold, then open with a big kernel to drop text/lines/grids
+  const mk = new cv.Mat(); cv.threshold(b, mk, thr, 255, cv.THRESH_BINARY_INV);
+  const ker = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(13, 13)); cv.morphologyEx(mk, mk, cv.MORPH_OPEN, ker); ker.delete();
+  const md = mk.data.slice(); mk.delete();
+  const bad = (x, y) => md[y * W + x] > 0;
+  const rowBad = y => { let k = 0; for (let x = 0; x < W; x++) if (bad(x, y)) k++; return k > W * 0.01; };
+  const colBad = x => { let k = 0; for (let y = 0; y < H; y++) if (bad(x, y)) k++; return k > H * 0.01; };
+  const mx = Math.round(W * maxFrac), my = Math.round(H * maxFrac);
+  // walk inward until two consecutive clean lines
+  const walk = (n, f) => { let last = 0; for (let i = 0; i < n; i++) if (f(i)) last = i + 1; return last; };
+  let t = walk(my, y => rowBad(y)), bo = walk(my, i => rowBad(H - 1 - i)), l = walk(mx, x => colBad(x)), r = walk(mx, i => colBad(W - 1 - i));
+  [sm, g, b].forEach(m => m.delete());
+  if (!(t || bo || l || r)) return { mat: rgba.clone(), trim: [0, 0, 0, 0] };
+  const pad = 2 / sc, X = Math.round(l / sc + (l ? pad : 0)), Y = Math.round(t / sc + (t ? pad : 0));
+  const X2 = Math.round(rgba.cols - r / sc - (r ? pad : 0)), Y2 = Math.round(rgba.rows - bo / sc - (bo ? pad : 0));
+  const roi = rgba.roi(new cv.Rect(X, Y, Math.max(1, X2 - X), Math.max(1, Y2 - Y))), out = new cv.Mat(); roi.copyTo(out); roi.delete();
+  return { mat: out, trim: [t / H, r / W, bo / H, l / W].map(v => +(100 * v).toFixed(1)) };
+}
 function maxDist(a, b) { return Math.max(...a.map((p, i) => Math.hypot(p[0] - b[i][0], p[1] - b[i][1]))); }
 // warp full-res rgba Mat by normalised quad -> new Mat oriented to card aspect, long side <= maxPx
 function warpQuad(cv, rgba, q, maxPx) {
@@ -335,6 +384,6 @@ function warpQuad(cv, rgba, q, maxPx) {
   cv.warpPerspective(rgba, out, M, new cv.Size(w, h), cv.INTER_LINEAR, cv.BORDER_REPLICATE);
   src.delete(); dst.delete(); M.delete(); return out;
 }
-const api = { refineQuad, measureSkew, deskew, confidence, enhance, lineFamilies, rectangularity, aspectScore, detectQuad, warpQuad, order, area, maxDist };
+const api = { trimBackground, refineQuad, measureSkew, deskew, confidence, enhance, lineFamilies, rectangularity, aspectScore, detectQuad, warpQuad, order, area, maxDist };
 if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.CardDetector = api;
 })(typeof self !== 'undefined' ? self : this);
