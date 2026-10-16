@@ -163,13 +163,13 @@ header.top .title{line-height:1;position:relative;top:2.5px}
 /* owner: instructions on one line down to 360px */
 #startView .help{white-space:nowrap;font-size:15px}
 /* owner: stone background below white header, fixed (iOS-safe pseudo-element) */
-html.on-start body::before{content:"";position:fixed;inset:0;z-index:-1;background:#fff url(bg-stone.jpg?v=1792161961) center/cover no-repeat;pointer-events:none}
+html.on-start body::before{content:"";position:fixed;inset:0;z-index:-1;background:#fff url(bg-stone.jpg?v=1792162220) center/cover no-repeat;pointer-events:none}
 header.top{background:#fff}
 /* owner: readability on stone */
 #startView .help{color:#444}
 .jorow input.big{background:#fff}
 /* owner: continuous stone everywhere incl. overscroll */
-html.on-start{background:#d8d3c8 url(bg-stone.jpg?v=1792161961) center top/cover no-repeat fixed;min-height:100%}
+html.on-start{background:#d8d3c8 url(bg-stone.jpg?v=1792162220) center top/cover no-repeat fixed;min-height:100%}
 html.on-start body{background:transparent;min-height:100%}
 html:not(.on-start),html:not(.on-start) body{background:#fff}
 html.on-start body::before{top:-120px;left:0;right:0;bottom:auto;inset:auto;top:-120px;left:0;right:0;height:calc(120vh + 240px);height:calc(100lvh + 240px);background-color:#d8d3c8;background-position:center}
@@ -185,3 +185,4 @@ header.top{background:#fff}
 #scanView .controls .toggle:first-child{justify-self:start}
 #scanView .controls .toggle:last-child{justify-self:end}
 #btnDone{display:block;width:fit-content;width:-webkit-fit-content;margin-left:auto;margin-right:auto;min-height:44px;background:#000;color:#fff;border:0;border-radius:16px;font-family:'Libre Bodoni',serif;font-weight:500;font-size:22px;letter-spacing:.04em;padding:14px 40px}
+#btnCapture.shutter{background:#d4af37}
