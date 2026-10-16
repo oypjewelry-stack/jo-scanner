@@ -362,7 +362,7 @@ function fitStage() {
   const availH = window.innerHeight * 0.62, ar = video.videoWidth / video.videoHeight;
   let w = availW, h = w / ar; if (h > availH) { h = availH; w = h * ar; }
   st.style.aspectRatio = 'auto'; st.style.width = Math.floor(w) + 'px'; st.style.height = Math.floor(h) + 'px';
-  const ctl = st.parentElement.querySelector('.controls'); if (ctl) { ctl.style.width = Math.floor(w) + 'px'; }
+  const ctl = st.parentElement.querySelector('.controls'); if (ctl) { ctl.style.width = Math.floor(w) + 'px'; } const jb = document.querySelector('#scanView .jobar'); if (jb) { jb.style.width = Math.floor(w) + 'px'; }
 }
 video.addEventListener('loadedmetadata', fitStage);
 video.addEventListener('resize', fitStage);
