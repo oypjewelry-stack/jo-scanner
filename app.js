@@ -180,7 +180,7 @@ function setStatus(pg, cls, text) {
   pg.el.querySelector('.retry').classList.toggle('hidden', !(cls === 'err' || cls === 'mm'));
 }
 async function upload(pg) {
-  if (!api()) return setStatus(pg, 'err', 'No backend URL. Set it in ⚙ then Retry');
+  if (!api()) return setStatus(pg, 'err', 'No backend URL. Set it in Settings then Retry');
   setStatus(pg, 'queued', 'Uploading…');
   try {
     const res = await fetch(api(), { method: 'POST', redirect: 'follow',

@@ -7,7 +7,7 @@ Files: `index.html`, `style.css`, `app.js` (front end, static, no build step) an
 ## 1. Deploy the backend (Google Apps Script, free, about 5 minutes)
 1. Open https://script.google.com and sign in with the Google account whose Drive should hold the cards. Click **New project** and name it "OYP JO Scanner".
 2. Paste `apps-script/Code.gs` over the contents of `Code.gs`.
-3. Go to **Project Settings** (gear icon) and tick **Show "appsscript.json" manifest file in editor**. Open `appsscript.json` and paste in the file from this folder. That turns on the Drive API (v3) advanced service, which provides the free OCR. You can also add it by hand: **Services +**, then **Drive API**, version v3.
+3. Go to **Project Settings** (settings (⋯) icon) and tick **Show "appsscript.json" manifest file in editor**. Open `appsscript.json` and paste in the file from this folder. That turns on the Drive API (v3) advanced service, which provides the free OCR. You can also add it by hand: **Services +**, then **Drive API**, version v3.
 4. Optional security: in **Project Settings → Script Properties**, add `TOKEN` = any secret word. The phone must then send that same word.
 5. Click **Deploy → New deployment**, choose type **Web app**, set *Execute as: **Me*** and *Who has access: **Anyone***, then **Deploy**. Approve the permissions; if Google shows "unverified app", choose **Advanced → Go to project**.
 6. Copy the **Web app URL**. It ends in `/exec`.
@@ -21,7 +21,7 @@ Any static host works. Camera access requires HTTPS.
 - **Netlify Drop** (app.netlify.com/drop): drag in the folder.
 
 ## 3. Point the app at the backend
-Open the page on the iPhone, tap ⚙, paste the Web app URL and the token, then tap Save. Both are stored on that phone. You can also use one link per staff phone:
+Open the page on the iPhone, tap Settings, paste the Web app URL and the token, then tap Save. Both are stored on that phone. You can also use one link per staff phone:
 `https://YOUR-SITE/?api=WEB_APP_URL&token=SECRET`
 
 ## 4. Use it
