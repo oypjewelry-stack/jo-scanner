@@ -117,7 +117,7 @@ function detect(cv) {
 function drawQuad(q, ok) {
   const r = overlay.getBoundingClientRect(); overlay.width = r.width; overlay.height = r.height;
   const c = overlay.getContext('2d'); c.clearRect(0, 0, r.width, r.height); if (!q) return;
-  const vw = video.videoWidth, vh = video.videoHeight, s = Math.max(r.width / vw, r.height / vh);
+  const vw = video.videoWidth, vh = video.videoHeight, s = Math.min(r.width / vw, r.height / vh);
   const ox = (r.width - vw * s) / 2, oy = (r.height - vh * s) / 2;
   c.strokeStyle = ok ? '#d4af37' : 'rgba(255,255,255,.9)'; c.lineWidth = 4; c.fillStyle = ok ? 'rgba(212,175,55,.18)' : 'rgba(255,255,255,.08)';
   c.beginPath(); q.forEach(([x, y], i) => c[i ? 'lineTo' : 'moveTo'](ox + x * vw * s, oy + y * vh * s)); c.closePath(); c.fill(); c.stroke();
@@ -325,3 +325,9 @@ window.addEventListener('online', retryAll);
   const sync = () => document.documentElement.classList.toggle('on-start', !sv.classList.contains('hidden'));
   new MutationObserver(sync).observe(sv, { attributes: true, attributeFilter: ['class'] }); sync();
 })();
+
+// size the preview box to the camera's own aspect so the whole frame shows (no cropping, minimal bars)
+video.addEventListener('loadedmetadata', () => {
+  const st = video.closest('.stage'); if (!st || !video.videoWidth) return;
+  st.style.aspectRatio = video.videoWidth + ' / ' + video.videoHeight;
+});
