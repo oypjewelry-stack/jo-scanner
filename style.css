@@ -156,3 +156,4 @@ header.top .title{font-size:20px}
 .jorow input.big{font-family:Inter,Helvetica,sans-serif;font-weight:500}
 /* owner step1: vertically centre start block below header */
 #startView{display:flex;flex-direction:column;justify-content:center;box-sizing:border-box;min-height:calc(100vh - 77px);min-height:calc(100dvh - 77px)}
+#startView .help{text-transform:none}
