@@ -163,8 +163,13 @@ header.top .title{line-height:1;position:relative;top:2.5px}
 /* owner: instructions on one line down to 360px */
 #startView .help{white-space:nowrap;font-size:15px}
 /* owner: stone background below white header, fixed (iOS-safe pseudo-element) */
-body::before{content:"";position:fixed;inset:0;z-index:-1;background:#fff url(bg-stone.jpg?v=1792161372) center/cover no-repeat;pointer-events:none}
+body::before{content:"";position:fixed;inset:0;z-index:-1;background:#fff url(bg-stone.jpg?v=1792161466) center/cover no-repeat;pointer-events:none}
 header.top{background:#fff}
 /* owner: readability on stone */
 #startView .help{color:#444}
 .jorow input.big{background:#fff}
+/* owner: continuous stone everywhere incl. overscroll */
+html{background:#d8d3c8 url(bg-stone.jpg?v=1792161466) center top/cover no-repeat fixed;min-height:100%}
+body{background:transparent;min-height:100%}
+body::before{top:-120px;left:0;right:0;bottom:auto;inset:auto;top:-120px;left:0;right:0;height:calc(120vh + 240px);height:calc(100lvh + 240px);background-color:#d8d3c8;background-position:center}
+header.top{background:#fff}
