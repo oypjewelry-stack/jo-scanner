@@ -40,14 +40,24 @@ btn.addEventListener('click', () => {
   if (rec) { rec.stop(); return; }
   rec = new SR(); rec.lang = 'en-US'; rec.interimResults = false; rec.maxAlternatives = 1; rec.continuous = false;
   btn.classList.add('listening'); btn.setAttribute('aria-pressed', 'true');
-  rec.onresult = e => {
-    const heard = e.results[0][0].transcript;
+  let heard = '', started = false;
+  const finish = () => {
+    if (started || !heard) return; started = true;
     const digits = spokenToDigits(heard);
     const jo = root.normJO(digits || heard);
     input.value = jo;
-    if (/^\d{2}-\d{3,4}$/.test(jo) && document.getElementById('micAuto').checked) document.getElementById('btnStart').click();
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    const auto = document.getElementById('micAuto');
+    if (auto && auto.checked && /^\d{2}-\d{3,4}$/.test(jo)) setTimeout(() => document.getElementById('btnStart').click(), 0);
   };
-  const end = () => { rec = null; btn.classList.remove('listening'); btn.setAttribute('aria-pressed', 'false'); };
+  rec.onresult = e => {
+    // iOS Safari may deliver several result events / interim results; take the latest transcript
+    const r = e.results[e.results.length - 1];
+    heard = r[0].transcript;
+    if (r.isFinal !== false) finish();
+  };
+  const end = () => { rec = null; btn.classList.remove('listening'); btn.setAttribute('aria-pressed', 'false'); finish(); };
   rec.onend = end; rec.onerror = end;
   try { rec.start(); } catch (_) { end(); }
 });

@@ -53,7 +53,12 @@ async function startCamera() {
     video.srcObject = state.stream; await video.play();
     hint('Align the card inside the frame');
     runLoop();
-  } catch (e) { hint('Camera unavailable: ' + e.name); }
+  } catch (e) {
+    // iOS can refuse camera start outside a tap (e.g. after voice); let the user tap the preview to retry
+    hint('Tap here to start the camera'); const h = $('hint');
+    const retry = () => { h.removeEventListener('click', retry); video.removeEventListener('click', retry); startCamera(); };
+    h.style.pointerEvents = 'auto'; h.addEventListener('click', retry); video.addEventListener('click', retry);
+  }
 }
 function hint(t, ok) { const h = $('hint'); h.textContent = t; h.classList.toggle('ok', !!ok); }
 
