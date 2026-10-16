@@ -41,3 +41,10 @@ h1,h2,.serif{font-weight:500;letter-spacing:-.005em}
 button.primary{font-family:'Bodoni Moda',Didot,serif;font-weight:500;font-size:20px;letter-spacing:.06em}
 .lbl{font-family:Inter,Helvetica,sans-serif;font-weight:500;font-size:12px;letter-spacing:.14em}
 .price{font-family:'Bodoni Moda',Didot,serif;font-weight:600}
+/* Brand fonts v3: headers = Libre Bodoni 500 (stand-in for Berthold Bodoni Medium); descriptive = Bodoni Moda 400 (opsz) */
+:root{--head:'Libre Bodoni','Berthold Bodoni','Bodoni 72',Didot,serif;--body:'Bodoni Moda','Bodoni 72',Didot,serif}
+body{font-family:var(--body);font-weight:400;font-optical-sizing:auto}
+h1,h2,.serif,.title,input.big,button.primary,.jobar strong,.price{font-family:var(--head);font-weight:500}
+.muted,.toggle,.hint,.warn,.pages .st,dialog,dialog p,dialog label{font-family:var(--body);font-weight:400}
+.lbl{font-family:Inter,Helvetica,sans-serif}
+.icon{color:#9a9a9a;opacity:1;transition:none}.icon:hover,.icon:focus,.icon:active{color:#9a9a9a;background:none;outline:none}
