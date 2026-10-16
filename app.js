@@ -12,10 +12,12 @@ const MAX_PX = 2000, QUALITY = 0.85, STEADY_MS = 900, COOLDOWN_MS = 2500;
 
 /* ---------- JO normalisation (shared logic with Code.gs) ---------- */
 function normJO(s) {
-  const m = String(s || '').toUpperCase().match(/(\d{2})\s*[-,.\/ ]?\s*(\d{3,4})/);
-  return m ? m[1] + '-' + m[2] : String(s || '').trim().toUpperCase().replace(/^J\.?O\.?\s*#?\s*/, '');
+  // keeps a revision letter: '26-005B', '26-005 b' -> '26-005B'
+  const m = String(s || '').toUpperCase().match(/(\d{2})\s*[-,.\/ ]?\s*(\d{3,4})(?:\s?([A-Z])(?![A-Z0-9]))?/);
+  return m ? m[1] + '-' + m[2] + (m[3] || '') : String(s || '').trim().toUpperCase().replace(/^J\.?O\.?\s*#?\s*/, '');
 }
 window.normJO = normJO;
+if (typeof module !== 'undefined' && module.exports) module.exports.normJO = normJO;
 
 /* ---------- settings ---------- */
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbzUmacbdvb0V2nw9ekharFhZPYdSqVgpFpADKiPM2qhSUUF3G5pJ_cAZ46eQPxeawhV/exec';

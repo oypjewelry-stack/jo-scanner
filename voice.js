@@ -28,9 +28,14 @@ function spokenToDigits(s) {
   return out;
 }
 // YY + 1-4 digits -> YY-NNN (zero-padded to 3) or YY-NNNN; anything else -> ''
+// a trailing revision letter is kept: 'twenty six zero zero five B' / 'bee' -> 26-005B
+const LETTER = { bee:'B', be:'B', b:'B', see:'C', sea:'C', c:'C', dee:'D', d:'D', e:'E', ee:'E', f:'F', ef:'F' };
 function spokenToJO(s) {
-  const d = spokenToDigits(s); const m = d.match(/^(\d{2})(\d{1,4})$/);
-  return m ? m[1] + '-' + (m[2].length < 3 ? m[2].padStart(3, '0') : m[2]) : '';
+  const toks = String(s || '').toLowerCase().replace(/(\d)([a-z])\b/g, '$1 $2').trim().split(/[\s,.\-\/#:]+/).filter(Boolean);
+  let rev = '';
+  if (toks.length > 1 && toks[toks.length - 1] in LETTER) rev = LETTER[toks.pop()];
+  const d = spokenToDigits(toks.join(' ')); const m = d.match(/^(\d{2})(\d{1,4})$/);
+  return m ? m[1] + '-' + (m[2].length < 3 ? m[2].padStart(3, '0') : m[2]) + rev : '';
 }
 root.spokenToDigits = spokenToDigits; root.spokenToJO = spokenToJO;
 if (typeof module !== 'undefined' && module.exports) { module.exports = { spokenToDigits, spokenToJO }; return; }
@@ -54,7 +59,7 @@ btn.addEventListener('click', () => {
     input.value = jo;
     input.dispatchEvent(new Event('input', { bubbles: true }));
     input.dispatchEvent(new Event('change', { bubbles: true }));
-    if (!/^\d{2}-\d{3,4}$/.test(jo)) return;
+    if (!/^\d{2}-\d{3,4}[A-Z]?$/.test(jo)) return;
     // always auto-start; if the camera could not be opened during the tap, ask for one more tap
     cam.then(ok => { if (ok) document.getElementById('btnStart').click(); else root.askTapToStart && root.askTapToStart(); });
   };

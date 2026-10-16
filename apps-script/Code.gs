@@ -53,17 +53,17 @@ function getOrCreate_(parent, name) {
 
 /** '26-001', 'JO 26-001', 'JO# 26,001', '26 001' -> '26-001' */
 function normJO_(s) {
-  var m = String(s || '').toUpperCase().match(/(\d{2})\s*[-,.\/ ]?\s*(\d{3,4})/);
-  return m ? m[1] + '-' + m[2] : String(s || '').trim().toUpperCase().replace(/^J\.?O\.?\s*#?\s*/, '');
+  var m = String(s || '').toUpperCase().match(/(\d{2})\s*[-,.\/ ]?\s*(\d{3,4})(?:\s?([A-Z])(?![A-Z0-9]))?/);
+  return m ? m[1] + '-' + m[2] + (m[3] || '') : String(s || '').trim().toUpperCase().replace(/^J\.?O\.?\s*#?\s*/, '');
 }
 
 /** All JO-looking numbers in OCR text, normalised, unique. Prefers ones labelled JO. */
 function findJOs_(text) {
   var t = String(text || '').toUpperCase(), out = [], m;
-  var labelled = /J\.?\s*O\.?\s*(?:NO\.?|#)?\s*[:#]?\s*(\d{2})\s*[-,.\/ ]\s*(\d{3,4})/g;
-  while ((m = labelled.exec(t))) push_(out, m[1] + '-' + m[2]);
-  var bare = /\b(\d{2})\s?[-,.\/]\s?(\d{3})\b/g; // e.g. 26-001 (skips dates like 1-7-26)
-  while ((m = bare.exec(t))) push_(out, m[1] + '-' + m[2]);
+  var labelled = /J\.?\s*O\.?\s*(?:NO\.?|#)?\s*[:#]?\s*(\d{2})\s*[-,.\/ ]\s*(\d{3,4})([A-Z])?(?![A-Z0-9])/g;
+  while ((m = labelled.exec(t))) push_(out, m[1] + '-' + m[2] + (m[3] || ''));
+  var bare = /\b(\d{2})\s?[-,.\/]\s?(\d{3})([A-Z])?\b/g; // e.g. 26-001, 26-005B (skips dates like 1-7-26)
+  while ((m = bare.exec(t))) push_(out, m[1] + '-' + m[2] + (m[3] || ''));
   return out;
 }
 function push_(a, v) { if (a.indexOf(v) === -1) a.push(v); }
