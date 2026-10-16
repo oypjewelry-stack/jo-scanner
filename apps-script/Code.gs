@@ -1,5 +1,5 @@
 /**
- * OYP JO Card Scanner backend (Google Apps Script web app).
+ * OYP Card Scanner backend (Google Apps Script web app).
  * Deploy: Execute as "Me", Who has access "Anyone".
  * Requires the Drive advanced service (v3) for free OCR.
  * Optional: Script Property TOKEN = shared secret the phone must send.
@@ -36,7 +36,7 @@ function doPost(e) {
   }
 }
 
-function doGet() { return json_({ ok: true, service: 'OYP JO Card Scanner' }); }
+function doGet() { return json_({ ok: true, service: 'OYP Card Scanner' }); }
 
 /** Free OCR: import image as a Google Doc with OCR, read text, trash temp doc. */
 function ocr_(blob, name) {

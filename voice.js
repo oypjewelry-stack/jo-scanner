@@ -1,4 +1,4 @@
-/* OYP JO Card Scanner: voice input for the JO number (Web Speech API). */
+/* OYP Card Scanner: voice input for the JO number (Web Speech API). */
 (function (root) {
 'use strict';
 const UNITS = { zero:0, oh:0, o:0, nought:0, one:1, won:1, two:2, to:2, too:2, three:3, four:4, for:4, five:5, six:6, seven:7, eight:8, ate:8, nine:9 };

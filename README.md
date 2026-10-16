@@ -1,4 +1,4 @@
-# OYP JO Card Scanner
+# OYP Card Scanner
 
 A free phone web app for photographing job order cards page by page. Each photo is saved to Google Drive in **Job Order Cards / <JO#> / <JO#>-p1.jpg, -p2.jpg…**, and the JO number is OCR-checked against the number you typed.
 

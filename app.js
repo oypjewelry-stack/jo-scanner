@@ -1,4 +1,4 @@
-/* OYP JO Card Scanner — static front-end, no build step. */
+/* OYP Card Scanner — static front-end, no build step. */
 (() => {
 'use strict';
 const $ = id => document.getElementById(id);
