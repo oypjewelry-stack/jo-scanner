@@ -45,3 +45,9 @@ Tap the gold mic button beside the JO box and say the number ("twenty six zero z
 - After every capture a review screen opens: drag the 4 gold corners to fit the card, then **Use**, **No crop** (keep full photo) or **Retake**.
 - If no card is found, tap the shutter: the full photo opens in the corner editor with a default rectangle.
 - Tips: a darker or plain surface under the card, and no other sheets touching it, gives the best auto-crop.
+
+## Sign-in backend (Auth.gs) — one-time update
+1. In the Apps Script project, add a new script file named `Auth` and paste `apps-script/Auth.gs`. Replace `Code.gs` and `appsscript.json` with the versions here (adds the Sheets scope).
+2. Optional: Project Settings → Script Properties → `SHEET_ID` = the id of the Sheet to use. If unset, a new "OYP JO System" spreadsheet is created in your Drive. Only the tabs Users, Sessions and AuditLog are added; nothing else is changed.
+3. Add Script Property `SEED_USERS` = `name:role:code,...` (sent privately). Select `setupAuth` in the editor and click **Run**, approve the new permission. It seeds the users (hashes only) and deletes `SEED_USERS`.
+4. **Deploy → Manage deployments → Edit → New version → Deploy** (keeps the same URL).

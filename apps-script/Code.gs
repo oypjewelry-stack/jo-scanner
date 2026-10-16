@@ -9,6 +9,7 @@ var PARENT_FOLDER = 'Job Order Cards';
 function doPost(e) {
   try {
     var req = JSON.parse(e.postData.contents);
+    if (req.action) return json_(handleAction_(req)); // sign-in / roles (Auth.gs)
     var token = PropertiesService.getScriptProperties().getProperty('TOKEN');
     if (token && req.token !== token) return json_({ ok: false, error: 'Bad token' });
     var jo = normJO_(req.jo);
@@ -36,7 +37,7 @@ function doPost(e) {
   }
 }
 
-function doGet() { return json_({ ok: true, service: 'OYP Card Scanner' }); }
+function doGet() { return json_({ ok: true, service: 'OYP Card Scanner', auth: typeof handleAction_ === 'function' }); }
 
 /** Free OCR: import image as a Google Doc with OCR, read text, trash temp doc. */
 function ocr_(blob, name) {
