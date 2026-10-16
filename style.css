@@ -141,3 +141,8 @@ header.top .title{font-size:20px}
 /* owner: listening state in brand gold */
 .jorow .mic.listening{color:var(--gold);background:rgba(212,175,55,.16);animation:micgold 1s ease-in-out infinite}
 @keyframes micgold{50%{box-shadow:0 0 0 7px rgba(212,175,55,.22)}}
+
+/* fixed-ratio pages: uniform thumbnails, no gaps */
+.pages img{width:50px;height:78px;object-fit:cover;background:none}
+.rvpreview{object-fit:cover;aspect-ratio:1/1.55;height:72px;width:auto;background:none}
+.toast img{height:56px;aspect-ratio:1/1.55;object-fit:cover}

@@ -373,17 +373,23 @@ function trimBackground(cv, rgba, opts) {
 }
 function maxDist(a, b) { return Math.max(...a.map((p, i) => Math.hypot(p[0] - b[i][0], p[1] - b[i][1]))); }
 // warp full-res rgba Mat by normalised quad -> new Mat oriented to card aspect, long side <= maxPx
+const CARD_RATIO = 1.55;
+function cardSize(P, maxPx) {
+  const d = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]), L = maxPx || 2000, S = Math.round(L / CARD_RATIO);
+  const w = d(P[0], P[1]) + d(P[3], P[2]), h = d(P[0], P[3]) + d(P[1], P[2]);
+  return w >= h ? [L, S] : [S, L];
+}
 function warpQuad(cv, rgba, q, maxPx) {
   const P = q.map(([x, y]) => [x * rgba.cols, y * rgba.rows]);
   const d = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
-  let w = Math.max(d(P[0], P[1]), d(P[3], P[2])), h = Math.max(d(P[0], P[3]), d(P[1], P[2]));
-  const s = Math.min(1, (maxPx || 2000) / Math.max(w, h)); w = Math.round(w * s); h = Math.round(h * s);
+  // every page comes out the same size: card ratio, orientation from the quad, corners mapped edge to edge
+  const sz = cardSize(P, maxPx), w = sz[0], h = sz[1];
   const src = cv.matFromArray(4, 1, cv.CV_32FC2, [].concat(...P));
   const dst = cv.matFromArray(4, 1, cv.CV_32FC2, [0, 0, w, 0, w, h, 0, h]);
   const M = cv.getPerspectiveTransform(src, dst), out = new cv.Mat();
   cv.warpPerspective(rgba, out, M, new cv.Size(w, h), cv.INTER_LINEAR, cv.BORDER_REPLICATE);
   src.delete(); dst.delete(); M.delete(); return out;
 }
-const api = { trimBackground, refineQuad, measureSkew, deskew, confidence, enhance, lineFamilies, rectangularity, aspectScore, detectQuad, warpQuad, order, area, maxDist };
+const api = { cardSize, CARD_RATIO, trimBackground, refineQuad, measureSkew, deskew, confidence, enhance, lineFamilies, rectangularity, aspectScore, detectQuad, warpQuad, order, area, maxDist };
 if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.CardDetector = api;
 })(typeof self !== 'undefined' ? self : this);

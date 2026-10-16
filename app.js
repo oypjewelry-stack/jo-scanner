@@ -274,8 +274,7 @@ function homography(s, d) { // maps d -> s (8 unknowns, Gaussian elimination)
 }
 function warpJS(src, q, maxPx) {
   const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
-  let W = Math.max(dist(q[0], q[1]), dist(q[3], q[2])), H = Math.max(dist(q[0], q[3]), dist(q[1], q[2]));
-  const s = Math.min(1, (maxPx || MAX_PX) / Math.max(W, H)); W = Math.round(W * s); H = Math.round(H * s);
+  const [W, H] = CardDetector.cardSize(q, maxPx || MAX_PX); // fixed card-size output, edge to edge
   const h = homography(q, [[0, 0], [W, 0], [W, H], [0, H]]);
   const sd = src.getContext('2d').getImageData(0, 0, src.width, src.height).data, sw = src.width, sh = src.height;
   const out = document.createElement('canvas'); out.width = W; out.height = H;
