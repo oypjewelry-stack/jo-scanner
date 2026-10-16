@@ -149,3 +149,6 @@ header.top .title{font-size:20px}
 /* owner: more space above JO box; listening = gold icon only */
 #startView .help{margin-bottom:32px}
 .jorow .mic.listening{color:#d4af37;background:transparent;animation:none;box-shadow:none;transform:translateY(-50%)}
+/* owner: JO cap height = mic icon visual height (~20.6px); Inter cap-height 0.75em */
+.jorow .jopre{font-size:28.3px;line-height:1;letter-spacing:.02em}
+.jorow input.big{padding-left:76px}
