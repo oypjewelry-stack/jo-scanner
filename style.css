@@ -150,5 +150,7 @@ header.top .title{font-size:20px}
 #startView .help{margin-bottom:32px}
 .jorow .mic.listening{color:#d4af37;background:transparent;animation:none;box-shadow:none;transform:translateY(-50%)}
 /* owner: JO cap height = mic icon visual height (~20.6px); Inter cap-height 0.75em */
-.jorow .jopre{font-size:28.3px;line-height:1;letter-spacing:.02em}
+.jorow .jopre{font-size:22px;line-height:1;letter-spacing:.02em}
 .jorow input.big{padding-left:76px}
+/* owner: JO number uses same font as JO label (size/colour unchanged) */
+.jorow input.big{font-family:Inter,Helvetica,sans-serif;font-weight:500}
