@@ -112,3 +112,11 @@ header.top .title, h1{font-size:22px}
 /* owner: JO number label (start) + JO label (scan view) 16px */
 #startView .lbl, .jobar, .jobar strong{font-size:16px}
 #btnSettings,#btnSettings:hover,#btnSettings:focus,#btnSettings:active{color:#000}
+/* owner: mic as trailing icon inside the JO input (iOS search-field style) */
+.jorow{position:relative;display:block}
+.jorow input.big{width:100%;padding-left:64px;padding-right:64px}
+.jorow .mic{position:absolute;right:8px;top:50%;transform:translateY(-50%);width:48px;height:48px;min-height:48px;flex:none;border:0;border-radius:50%;background:transparent;color:#9a9a9a;padding:0;animation:none}
+.jorow .mic svg{width:26px;height:26px}
+.jorow .mic:active{transform:translateY(-50%) scale(.92)}
+.jorow .mic.listening{background:rgba(214,48,49,.12);color:#d63031;animation:micdot 1s ease-in-out infinite}
+@keyframes micdot{50%{box-shadow:0 0 0 7px rgba(214,48,49,.18)}}
