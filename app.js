@@ -318,3 +318,10 @@ async function upload(pg) {
 function retryAll() { state.pages.filter(p => p.status === 'err').forEach(upload); }
 window.addEventListener('online', retryAll);
 })();
+
+// owner: stone background only while the start screen is shown
+(function () {
+  const sv = document.getElementById('startView');
+  const sync = () => document.documentElement.classList.toggle('on-start', !sv.classList.contains('hidden'));
+  new MutationObserver(sync).observe(sv, { attributes: true, attributeFilter: ['class'] }); sync();
+})();
