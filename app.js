@@ -111,7 +111,7 @@ function detect(cv) {
   const s = DW / Math.max(vw, vh); work.width = Math.round(vw * s); work.height = Math.round(vh * s);
   const c = work.getContext('2d', { willReadFrequently: true }); c.drawImage(video, 0, 0, work.width, work.height);
   const m = cv.imread(work);
-  try { const r = CardDetector.detectQuad(cv, m, { size: DW }); state.lastConf = r ? r.confidence : 0; state.lastDet = r ? { s: r.support, r: r.rect, a: r.asp, st: r.step, v: r.votes, m: r.method } : null; return r ? r.quad : null; } finally { m.delete(); }
+  try { const r = CardDetector.detectQuad(cv, m, { size: DW }); state.lastConf = r ? r.confidence : 0; state.lastDet = r ? { s: r.support, r: r.rect, a: r.asp, st: r.step, v: r.votes, m: r.method, cut: r.cut } : null; return r ? r.quad : null; } finally { m.delete(); }
 }
 
 function drawQuad(q, ok) {
@@ -147,6 +147,7 @@ function runLoop() {
       // temporal smoothing of corners; a big jump means a new card/page, so reset
       const sm = prev && moved < 0.08 ? q.map((p, i) => [prev[i][0] * SMOOTH + p[0] * (1 - SMOOTH), prev[i][1] * SMOOTH + p[1] * (1 - SMOOTH)]) : q;
       if (moved > STEADY_TOL) state.steadySince = now;
+      state.recentMoves = (state.recentMoves || []).concat(moved < 1 ? moved : 0).slice(-8);
       state.lastQuad = sm;
       const steady = now - state.steadySince >= STEADY_MS;
       drawQuad(sm, steady);
@@ -173,10 +174,28 @@ function capture(quad, auto, conf) {
   if (navigator.vibrate) navigator.vibrate(40);
   const q = quad ? quad.map(p => p.slice()) : [[0.08, 0.08], [0.92, 0.08], [0.92, 0.92], [0.08, 0.92]];
   if (!$('doCrop').checked) return savePage(src, null);
+  let raw = q;
   if (quad && window.cv && window.cv.Mat) { // snap detected corners to the true card edges + small inset
+    raw = q.map(p => p.slice());
     try { const m = cv.imread(src); const r = CardDetector.refineQuad(cv, m, CardDetector.order(q)); m.delete(); q.splice(0, 4, ...r); } catch (e) { console.warn('refine', e); } }
-  if (auto && quad && conf >= AUTO_ACCEPT) { const pg = savePage(src, CardDetector.order(q)); showToast(pg, src, q); state.cooldownUntil = Date.now() + COOLDOWN_MS; state.steadySince = Date.now(); return; }
+  const why = auto && quad ? gateReason(state.lastDet, quad, raw, q) : 'manual'; state.gateWhy = why; state.gateDbg = { q: CardDetector.order(quad).map(p => p.map(v => +v.toFixed(3))), rf: +CardDetector.maxDist(CardDetector.order(raw), CardDetector.order(q)).toFixed(3) };
+  if (auto && quad && conf >= AUTO_ACCEPT && !why) { const pg = savePage(src, CardDetector.order(q)); showToast(pg, src, q); state.cooldownUntil = Date.now() + COOLDOWN_MS; state.steadySince = Date.now(); return; }
   openReview(src, q, !!quad);
+}
+// Confidence gate: auto-save only when every signal is clean; otherwise open the corner check.
+// Returns a reason string when unsure, or '' when it is safe to auto-save.
+function gateReason(d, quad, raw, refined) {
+  if (!d) return 'no-detail';
+  const B = 0.02, o = CardDetector.order(quad), nb = ([x, y]) => x < B || y < B || x > 1 - B || y > 1 - B;
+  // a whole side lying on the frame border = the card is (or may be) cut off, or we locked onto a sheet behind it
+  if (d.cut || [0, 1, 2, 3].some(i => nb(o[i]) && nb(o[(i + 1) % 4]))) return 'touches-frame';
+  if (CardDetector.maxDist(CardDetector.order(raw), CardDetector.order(refined)) > 0.06) return 'big-refit';
+  if (d.r < 0.85) return 'not-rectangular';
+  if (d.a < 0.8) return 'wrong-aspect';
+  if (d.st < 0.75) return 'low-contrast';
+  if (d.s < 0.7) return 'weak-edges';
+  if ((state.recentMoves || []).some(m => m > 0.03)) return 'unstable';
+  return '';
 }
 let toastTimer = null;
 function showToast(pg, src, q) {
@@ -326,8 +345,15 @@ window.addEventListener('online', retryAll);
   new MutationObserver(sync).observe(sv, { attributes: true, attributeFilter: ['class'] }); sync();
 })();
 
-// size the preview box to the camera's own aspect so the whole frame shows (no cropping, minimal bars)
-video.addEventListener('loadedmetadata', () => {
+// size the preview box to the camera's own aspect so the whole frame shows, always inside the page's white margins
+function fitStage() {
   const st = video.closest('.stage'); if (!st || !video.videoWidth) return;
-  st.style.aspectRatio = video.videoWidth + ' / ' + video.videoHeight;
-});
+  const box = st.parentElement, cs = getComputedStyle(box);
+  const availW = box.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  const availH = window.innerHeight * 0.62, ar = video.videoWidth / video.videoHeight;
+  let w = availW, h = w / ar; if (h > availH) { h = availH; w = h * ar; }
+  st.style.aspectRatio = 'auto'; st.style.width = Math.floor(w) + 'px'; st.style.height = Math.floor(h) + 'px';
+}
+video.addEventListener('loadedmetadata', fitStage);
+video.addEventListener('resize', fitStage);
+window.addEventListener('resize', fitStage);
