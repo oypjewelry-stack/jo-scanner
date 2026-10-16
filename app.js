@@ -42,7 +42,7 @@ $('btnDone').onclick = () => {
   // keep the camera stream open so the next card needs no new permission prompt
   $('joInput').value = ''; $('scanView').classList.add('hidden'); $('startView').classList.remove('hidden'); $('joInput').focus();
 };
-function updatePageLabel() { $('pageLabel').textContent = state.page ? state.page + ' page(s)' : 'No pages yet'; }
+function updatePageLabel() { $('pageLabel').textContent = String(state.page || 0); }
 
 /* ---------- camera ---------- */
 const video = $('video'), overlay = $('overlay'), work = $('work');
