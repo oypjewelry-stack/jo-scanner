@@ -36,3 +36,6 @@ Tip: add the page to the Home Screen from Safari's Share menu so it opens full-s
 - OCR works by importing the image as a temporary Google Doc with OCR, reading the text, and trashing the doc. It is free within normal Apps Script quotas (roughly 90 minutes of run time per day on a free account; each page takes 3 to 8 seconds, so about 600 or more pages a day). Scanning 2,000 cards may take a few days, or the OCR step can be skipped.
 - Shooting the same page again replaces the earlier file with the same name.
 - Edge detection is a lightweight on-device brightness/contour check with no libraries, and it works best with a light card on a dark background.
+
+## Voice input
+Tap the gold mic button beside the JO box and say the number ("twenty six zero zero one", "two six oh oh one", "JO 26 001"). It fills in `26-001` and, if "Start card automatically" is ticked, starts the card. If the browser lacks speech recognition the button is hidden; keyboard dictation still works.
