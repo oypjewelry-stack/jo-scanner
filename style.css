@@ -163,7 +163,7 @@ header.top .title{line-height:1;position:relative;top:2.5px}
 /* owner: instructions on one line down to 360px */
 #startView .help{white-space:nowrap;font-size:15px}
 /* owner: stone background below white header, fixed (iOS-safe pseudo-element) */
-body::before{content:"";position:fixed;inset:0;z-index:-1;background:#fff url(bg-stone.jpg?v=1792161338) center/cover no-repeat;pointer-events:none}
+body::before{content:"";position:fixed;inset:0;z-index:-1;background:#fff url(bg-stone.jpg?v=1792161372) center/cover no-repeat;pointer-events:none}
 header.top{background:#fff}
 /* owner: readability on stone */
 #startView .help{color:#444}
