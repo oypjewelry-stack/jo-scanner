@@ -190,3 +190,4 @@ header.top{background:#fff}
 /* toggles aligned to viewfinder edges */
 #scanView .controls{box-sizing:border-box;max-width:100%;margin-left:auto;margin-right:auto;padding-left:0;padding-right:0}
 #scanView .jobar{box-sizing:border-box;max-width:100%;margin-left:auto;margin-right:auto}
+header.top #btnSettings{position:relative;top:2.5px}
