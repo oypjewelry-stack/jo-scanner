@@ -159,3 +159,4 @@ header.top .title{font-size:20px}
 #startView .help{text-transform:none}
 /* owner: title cap-centre aligned with logo centre */
 header.top .title{line-height:1;position:relative;top:2.5px}
+#startView h1,#startView .help{text-align:center}
