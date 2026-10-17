@@ -16,7 +16,7 @@
  *     Matches an existing client by phone, then by name/alias; adds one only if nothing matches; never links when 2+ match.
  * Never deletes, never edits rows it didn't create apart from filling blanks, never throws: a Sheet problem can't fail an upload.
  * One-time: run setupJobs() to ADD the tabs JobOrders, JobStages, Clients, OcrLog (existing tabs are left as they are;
- *   the only exception: a JobOrders tab without a 'location' column gets that one header cell added at the far right).
+ *   the only exception: a JobOrders tab made by an older version gets the newer header cells (location, item_type, …) added at the far right).
  * Optional: run importExistingScans() (repeat until it says done) to bring cards scanned BEFORE this update into the Sheet.
  *
  * Back office "To review" (staff app #/review), admin + production_manager only. Hook (Auth.gs handleAction_, after the dashboard line):
@@ -24,7 +24,7 @@
  */
 var JOB_TABS = {
   JobOrders: ['jo', 'type', 'parent_jo', 'root_jo', 'status', 'location', 'current_stage', 'item_id', 'client_id', 'description', 'metal', 'karat',
-    'size', 'due_date', 'rate_snapshot_id', 'product_photo_file_id', 'drive_folder_id', 'review_state',
+    'size', 'item_type', 'stone_type', 'stone_size', 'grade', 'material', 'weight_g', 'due_date', 'rate_snapshot_id', 'product_photo_file_id', 'drive_folder_id', 'review_state',
     'created_at', 'created_by', 'updated_at', 'updated_by'],
   JobStages: ['stage_id', 'jo', 'seq', 'stage_code', 'status', 'started_at', 'ended_at', 'assignee', 'created_at', 'created_by', 'updated_at', 'updated_by'],
   Clients: ['client_id', 'name', 'aliases', 'phone', 'email', 'billing_info', 'notes', 'portal_code', 'created_at', 'created_by', 'updated_at', 'updated_by'],
@@ -32,7 +32,7 @@ var JOB_TABS = {
     'reviewed_by', 'reviewed_at', 'created_at', 'created_by']
 };
 var JOB_SCAN_FIELDS = ['type', 'parent_jo', 'root_jo', 'client_id', 'drive_folder_id']; // the only JobOrders cells a scan may fill
-var JOB_ADD_COLS = { JobOrders: ['location'] }; // new columns setupJobs may add (header only) to a JobOrders tab made before this version
+var JOB_ADD_COLS = { JobOrders: ['location', 'item_type', 'stone_type', 'stone_size', 'grade', 'material', 'weight_g'] }; // new columns setupJobs may add (header only) to a JobOrders tab made before this version
 var JOB_OCR_MAX = 45000; // a Sheet cell holds 50,000 characters
 
 /** ONE-TIME SETUP: select setupJobs and click Run. Adds missing tabs only; never changes a tab that exists. */
@@ -171,13 +171,24 @@ function jobParse_(text) {
 var JOB_LOCATIONS = [['vault', 'In vault'], ['showroom', 'Showroom'], ['consigned', 'Consigned'], ['working', 'Being worked on'],
   ['queue', 'In queue'], ['pickup', 'For pickup'], ['sold', 'Sold']];
 var JOB_LOC_STATUS = { working: 'active', queue: 'active', pickup: 'done', vault: 'done', showroom: 'done', consigned: 'done', sold: 'picked_up' };
-var JOB_EDIT = ['location', 'type', 'due_date', 'metal', 'karat', 'size', 'description', 'status', 'client_id'];
-var JOB_NEEDED = ['location', 'client', 'due_date', 'type', 'metal', 'karat', 'description']; // shown as "missing" flags
+// What the piece is. Each kind lists the extra fields that apply to it (flagged when empty). To add a kind, add a line here,
+// or list extra labels in the Settings tab: key item_types_extra, value e.g. "Watch, Coin" (those show description only).
+var JOB_ITEM_TYPES = [
+  ['jewelry', 'Jewelry', ['metal', 'karat']],
+  ['loose_stone', 'Loose stone', ['stone_type', 'stone_size', 'grade']],
+  ['pearl', 'Pearl', ['stone_type', 'stone_size', 'grade']],
+  ['raw_material', 'Raw material', ['material', 'weight_g']],
+  ['other', 'Other', []]
+];
+var JOB_EDIT = ['location', 'item_type', 'type', 'due_date', 'metal', 'karat', 'size', 'stone_type', 'stone_size', 'grade', 'material', 'weight_g',
+  'description', 'status', 'client_id'];
+var JOB_NEEDED = ['location', 'item_type', 'client', 'due_date', 'type', 'description']; // always flagged when empty; plus the item type's own fields
 var JOB_STATUSES = ['draft', 'active', 'done', 'picked_up', 'cancelled'];
 var JOB_ROLES = { admin: true, production_manager: true }; // everyone else: no access to these actions
 
 function isJobAction_(a) { return /^job[A-Z]/.test(String(a || '')); }
 function handleJob_(req, user) {
+  jobItemTypesCache_ = null; // re-read Settings once per request
   var acts = { jobReviewList: jobReviewList_, jobPhoto: jobPhoto_, jobClientSearch: jobClientSearch_, jobReviewSave: jobReviewSave_, jobBulkLocation: jobBulkLocation_ };
   if (!acts[req.action]) return { ok: false, error: 'Unknown action' };
   if (!JOB_ROLES[user.role]) { audit_(user.username, 'denied', req.action, req.device_id, 'role ' + user.role); return { ok: false, error: 'Not allowed', code: 'FORBIDDEN' }; }
@@ -200,10 +211,28 @@ function jobPublicClient_(c, user) {
 }
 function jobView_(j, pages, clients, user) {
   var o = { jo: jobKey_(j.jo) }, cl = clients[String(j.client_id || '')];
-  ['type', 'parent_jo', 'status', 'location', 'current_stage', 'description', 'metal', 'karat', 'size', 'review_state', 'client_id'].forEach(function (k) { o[k] = jobStr_(j[k]); });
+  ['type', 'parent_jo', 'status', 'location', 'current_stage', 'description', 'metal', 'karat', 'size', 'item_type', 'stone_type', 'stone_size', 'grade',
+    'material', 'weight_g', 'review_state', 'client_id'].forEach(function (k) { o[k] = jobStr_(j[k]); });
   o.due_date = jobDay_(j.due_date); o.client = jobPublicClient_(cl, user); o.pages = pages || []; o.scanned_at = jobStr_(j.created_at);
-  o.missing = JOB_NEEDED.filter(function (k) { return k === 'client' ? !o.client : !o[k]; });
+  var it = jobItemTypes_().filter(function (t) { return t[0] === o.item_type; })[0];
+  o.missing = JOB_NEEDED.concat(it ? it[2] : []).filter(function (k) { return k === 'client' ? !o.client : !o[k]; });
   return o;
+}
+var jobItemTypesCache_ = null;
+function jobItemTypes_() { // built-in kinds + Settings item_types_extra (description only)
+  if (jobItemTypesCache_) return jobItemTypesCache_;
+  var out = JOB_ITEM_TYPES.slice(), have = {}; out.forEach(function (t) { have[t[0]] = true; });
+  try {
+    var sh = ss_().getSheetByName('Settings');
+    if (sh) jobRows_('Settings').forEach(function (r) {
+      if (String(r.key) !== 'item_types_extra') return;
+      String(r.value || '').split(',').forEach(function (lab) {
+        lab = lab.trim().replace(/\s+/g, ' ').slice(0, 30); var code = lab.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+        if (code && !have[code]) { have[code] = true; out.splice(out.length - 1, 0, [code, lab, []]); }
+      });
+    });
+  } catch (e) {}
+  return (jobItemTypesCache_ = out);
 }
 function jobPages_() { // jo -> latest non-replaced scan per page
   var by = {};
@@ -221,7 +250,7 @@ function jobReviewList_(req, user) {
   var jobs = jobRows_('JobOrders').filter(function (j) { return jobKey_(j.jo) && j.review_state === 'draft' && j.status !== 'cancelled'; })
     .map(function (j) { return jobView_(j, pages[jobKey_(j.jo)], clients, user); })
     .sort(function (a, b) { return a.jo < b.jo ? -1 : a.jo > b.jo ? 1 : 0; });
-  return { ok: true, jobs: jobs, locations: JOB_LOCATIONS, can_see_phone: user.role === 'admin' };
+  return { ok: true, jobs: jobs, locations: JOB_LOCATIONS, item_types: jobItemTypes_(), can_see_phone: user.role === 'admin' };
 }
 /** A card photo as a data URL, only for a file that OcrLog ties to that JO (Drive files stay private). */
 function jobPhoto_(req, user) {
@@ -246,6 +275,9 @@ function jobClean_(k, v) {
   v = String(v == null ? '' : v).trim().replace(/\s+/g, ' ');
   if (k === 'location' && v && !JOB_LOCATIONS.some(function (l) { return l[0] === v; })) throw new Error('Unknown location');
   if (k === 'type' && v && ['new', 'repair', 'revision'].indexOf(v) < 0) throw new Error('Unknown type');
+  if (k === 'item_type' && v && !jobItemTypes_().some(function (t) { return t[0] === v; })) throw new Error('Unknown item type');
+  if (k === 'weight_g' && v && !/^\d+(\.\d+)?$/.test(v.replace(/\s*g$/i, ''))) throw new Error('Weight must be grams, e.g. 12.5');
+  if (k === 'weight_g') v = v.replace(/\s*g$/i, '');
   if (k === 'status' && v && JOB_STATUSES.indexOf(v) < 0) throw new Error('Unknown status');
   if (k === 'due_date' && v && !/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new Error('Due date must look like 2026-01-17');
   return v.slice(0, k === 'description' ? 300 : 80);

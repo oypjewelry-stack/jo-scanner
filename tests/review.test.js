@@ -27,7 +27,7 @@ ok(C('', 'jobReviewList').code === 'NO_SESSION', 'signed out: no access');
 let L = C(adm, 'jobReviewList');
 ok(L.ok && L.jobs.map(j => j.jo).join() === '26-001,26-002,26-003,26-005B,26-006,26-007', 'admin list: all drafts, JO order');
 const j1 = L.jobs[0];
-ok(j1.pages.length === 2 && j1.missing.join() === 'location,client,due_date,type,metal,karat,description', 'pages + every missing field flagged');
+ok(j1.pages.length === 2 && j1.missing.join() === 'location,item_type,client,due_date,type,description', 'pages + common missing fields flagged (no metal/karat until the kind is known)');
 ok(L.locations.length === 7 && L.locations[3][1] === 'Being worked on', '7 locations offered');
 ok(C(pm, 'jobReviewList').ok, 'PM can open the list');
 
@@ -92,4 +92,32 @@ ok(!('locations' in C(acc, 'dashboard')) && !('locations' in C(st, 'dashboard'))
 // scans keep working, re-scan never touches the reviewed JO
 scan('26-001', 3); row = tab('JobOrders').find(j => j.jo === '26-001');
 ok(row.location === 'working' && row.review_state === 'reviewed' && row.description === 'Charm necklace', 're-scan leaves reviewed JO alone');
+
+// item type: flags follow the kind of piece
+const M = jo => C(adm, 'jobReviewList').jobs.find(j => j.jo === jo);
+ok(C(adm, 'jobReviewList').item_types.map(t => t[1]).join() === 'Jewelry,Loose stone,Pearl,Raw material,Other', '5 item types offered');
+scan('26-060', 1); scan('26-061', 1); scan('26-062', 1); scan('26-063', 1);
+C(adm, 'jobReviewSave', { jo: '26-060', set: { item_type: 'jewelry' }, seen: {} });
+let m = M('26-060').missing; ok(m.includes('metal') && m.includes('karat') && !m.includes('stone_type') && !m.includes('item_type'), 'Jewelry -> metal + karat flagged');
+C(adm, 'jobReviewSave', { jo: '26-061', set: { item_type: 'pearl', stone_type: 'South Sea', stone_size: '11 mm' }, seen: {} });
+m = M('26-061').missing; ok(m.includes('grade') && !m.includes('stone_type') && !m.includes('stone_size') && !m.includes('metal') && !m.includes('karat'), 'Pearl -> stone type/size/grade, never metal/karat');
+C(adm, 'jobReviewSave', { jo: '26-062', set: { item_type: 'raw_material', material: 'Gold scrap', weight_g: '12.5 g' }, seen: {} });
+let rw = tab('JobOrders').find(j => j.jo === '26-062'); m = M('26-062').missing;
+ok(rw.weight_g === '12.5' && rw.material === 'Gold scrap' && !m.includes('material') && !m.includes('weight_g') && !m.includes('metal'), 'Raw material -> material + weight (grams kept as number)');
+ok(C(adm, 'jobReviewSave', { jo: '26-062', set: { weight_g: 'heavy' }, seen: { weight_g: '12.5' } }).error.includes('grams'), 'bad weight refused');
+C(adm, 'jobReviewSave', { jo: '26-063', set: { item_type: 'other' }, seen: {} });
+m = M('26-063').missing; ok(!['metal', 'karat', 'stone_type', 'grade', 'material', 'weight_g'].some(k => m.includes(k)) && m.includes('description'), 'Other -> description only');
+ok(C(adm, 'jobReviewSave', { jo: '26-063', set: { item_type: 'spaceship' }, seen: {} }).error === 'Unknown item type', 'unknown item type refused');
+// changing kind never wipes what was typed before; changing a filled kind still needs an up-to-date form
+C(adm, 'jobReviewSave', { jo: '26-060', set: { metal: 'Gold', karat: '18k' }, seen: {} });
+ok(C(pm, 'jobReviewSave', { jo: '26-060', set: { item_type: 'pearl' }, seen: { item_type: '' } }).code === 'CONFLICT', 'stale form cannot change the kind');
+C(pm, 'jobReviewSave', { jo: '26-060', set: { item_type: 'pearl' }, seen: { item_type: 'jewelry' } });
+rw = tab('JobOrders').find(j => j.jo === '26-060'); ok(rw.item_type === 'pearl' && rw.metal === 'Gold' && rw.karat === '18k', 'switching to Pearl keeps the old metal/karat (nothing deleted)');
+// owner adds more kinds in Settings
+g._.sheets.Settings = null; delete g._.sheets.Settings;
+g._.sheets.Settings = { data: [['key', 'value'], ['item_types_extra', 'Watch, Coin, Watch']], getLastRow() { return this.data.length; },
+  getDataRange() { const d = this.data; return { getValues: () => d.map(r => r.slice()) }; } };
+const its = C(adm, 'jobReviewList').item_types.map(t => t[0]).join();
+ok(its === 'jewelry,loose_stone,pearl,raw_material,watch,coin,other', 'Settings item_types_extra adds Watch + Coin (once each, before Other)');
+ok(C(adm, 'jobReviewSave', { jo: '26-063', set: { item_type: 'watch' }, seen: { item_type: 'other' } }).ok, 'an added kind can be saved');
 console.log(n + ' review tests passed');
