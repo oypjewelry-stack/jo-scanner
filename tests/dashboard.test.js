@@ -39,6 +39,15 @@ const p = D(pm);
 ok(p.ok && p.consignments && p.counts.overdue_consignments === 3, 'PM sees consignment');
 ok(p.sales === undefined && p.counts.month_sales === undefined && p.payments === undefined, 'PM: no sales, no payments');
 ok(p.counts.pending_breakdown.payments === null && p.counts.pending_work === 2, 'PM pending work excludes payments');
+ok(p.consignments.every(x => !('value' in x)) && !/"(value|agreed_value|price|price_php|srp|margin|markup)"/.test(JSON.stringify(p)), 'PM: no agreed values / prices / margins in the response');
+ok(p.can.prices === false && a.can.prices === true, 'can.prices: executives only');
+// executive roles are configurable (Script Property EXEC_ROLES)
+g._.props.EXEC_ROLES = 'admin,production_manager';
+ok(D(pm).consignments[0].value === 68000 && D(pm).sales, 'EXEC_ROLES adds the PM -> sees values + sales');
+g._.props.EXEC_ROLES = 'nonsense'; ok(D(pm).consignments[0].value === undefined && D(adm).consignments[0].value === 68000, 'unknown EXEC_ROLES -> falls back to admin');
+delete g._.props.EXEC_ROLES;
+ok(g.stripPricing_({ a: 1, srp: 9, list: [{ margin: 2, cost: 3, your_price: 4 }] }, { role: 'production_manager' }).list[0].cost === 3 &&
+  JSON.stringify(g.stripPricing_({ a: 1, srp: 9, list: [{ margin: 2, cost: 3, your_price: 4 }] }, { role: 'production_manager' })) === '{"a":1,"list":[{"cost":3}]}', 'stripPricing_ keeps raw cost, drops SRP / margin / your price');
 const c = D(acc);
 ok(c.ok && c.payments && c.sales === undefined && c.counts.month_sales === undefined, 'accounting: payments yes, sales no');
 ok(c.consignments === undefined && c.counts.consigned_out === undefined, 'accounting: no consignment');

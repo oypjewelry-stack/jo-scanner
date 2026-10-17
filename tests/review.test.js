@@ -120,4 +120,7 @@ g._.sheets.Settings = { data: [['key', 'value'], ['item_types_extra', 'Watch, Co
 const its = C(adm, 'jobReviewList').item_types.map(t => t[0]).join();
 ok(its === 'jewelry,loose_stone,pearl,raw_material,watch,coin,other', 'Settings item_types_extra adds Watch + Coin (once each, before Other)');
 ok(C(adm, 'jobReviewSave', { jo: '26-063', set: { item_type: 'watch' }, seen: { item_type: 'other' } }).ok, 'an added kind can be saved');
+ok(C(pm, 'jobReviewSave', { jo: '26-063', set: { srp: '5000' }, seen: {} }).code === 'FORBIDDEN', 'PM cannot send a price field');
+ok(tab('AuditLog').some(a => a.action === 'denied' && a.detail.includes('pricing field')), 'refused price write logged');
+ok(C(adm, 'jobReviewSave', { jo: '26-063', set: { srp: '5000' }, seen: {} }).ok, 'admin request with a price field is accepted (field not stored yet)');
 console.log(n + ' review tests passed');

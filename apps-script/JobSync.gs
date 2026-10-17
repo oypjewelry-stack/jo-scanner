@@ -194,7 +194,11 @@ function handleJob_(req, user) {
   if (!JOB_ROLES[user.role]) { audit_(user.username, 'denied', req.action, req.device_id, 'role ' + user.role); return { ok: false, error: 'Not allowed', code: 'FORBIDDEN' }; }
   if (!jobTabsReady_()) return { ok: false, error: 'The Sheet is not set up for scans yet (run setupJobs).', code: 'NO_TABS' };
   var write = req.action === 'jobReviewSave' || req.action === 'jobBulkLocation';
-  return write ? withLock_(function () { return acts[req.action](req, user); }) : acts[req.action](req, user);
+  if (write && !isExec_(user) && req.set && PRICING.EXEC_ONLY.some(function (k) { return k in req.set; })) {
+    audit_(user.username, 'denied', req.action, req.device_id, 'pricing field from role ' + user.role); return { ok: false, error: 'Prices and margins are for executives only', code: 'FORBIDDEN' };
+  }
+  var res = write ? withLock_(function () { return acts[req.action](req, user); }) : acts[req.action](req, user);
+  return stripPricing_(res, user);
 }
 function jobStr_(v) { return v instanceof Date ? jobDay_(v) : String(v == null ? '' : v).trim(); }
 function jobDay_(d) {
@@ -371,4 +375,34 @@ function importExistingScans() {
   }
   Logger.log('Done: ' + added + ' pages added from ' + seenJos + ' JO folders.');
   return { done: true, added: added };
+}
+
+/* ======================= pricing visibility (server-side) ======================= */
+/**
+ * Executive-only: markups, stone pricing beyond the raw input cost, SRP, "your price", margin, agreed/selling values.
+ * The production manager may enter and see material + labor inputs and their raw costs only.
+ * Executive roles = Script Property EXEC_ROLES (comma list, e.g. "admin" or "admin,owner"); default "admin".
+ * Every response a non-executive gets can be passed through stripPricing_ so a field added later can't leak by accident.
+ */
+var PRICING = {
+  EXEC_ROLES_DEFAULT: ['admin'],
+  EXEC_ONLY: ['markup', 'markup_pct', 'premium_pct', 'stone_price', 'stone_markup', 'srp', 'your_price', 'price', 'price_php', 'selling_price',
+    'margin', 'margin_pct', 'profit', 'agreed_value', 'value', 'suggested_php_g', 'quote_amount', 'month_sales', 'sales']
+};
+function execRoles_() {
+  var p = ''; try { p = PropertiesService.getScriptProperties().getProperty('EXEC_ROLES') || ''; } catch (e) {}
+  var l = p.split(',').map(function (s) { return s.trim().toLowerCase(); }).filter(function (s) { return ROLES.indexOf(s) >= 0; });
+  return l.length ? l : PRICING.EXEC_ROLES_DEFAULT.slice();
+}
+function isExec_(user) { return !!user && execRoles_().indexOf(String(user.role)) >= 0; }
+/** Deep copy without executive-only keys (for anyone who isn't an executive). */
+function stripPricing_(o, user) {
+  if (isExec_(user)) return o;
+  var bad = {}; PRICING.EXEC_ONLY.forEach(function (k) { bad[k] = true; });
+  var walk = function (v) {
+    if (Array.isArray(v)) return v.map(walk);
+    if (v && typeof v === 'object' && !(v instanceof Date)) { var r = {}; Object.keys(v).forEach(function (k) { if (!bad[k]) r[k] = walk(v[k]); }); return r; }
+    return v;
+  };
+  return walk(o);
 }

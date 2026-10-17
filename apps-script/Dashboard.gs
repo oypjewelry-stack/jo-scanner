@@ -26,7 +26,8 @@ var DASH = {
     ['consigned', 'Consigned'], ['sold', 'Sold']],
   OPEN_STATUSES: ['draft', 'active', 'done'] // done = finished, waiting for pickup; picked_up / cancelled are closed
 };
-// What each role may see. Sales + chart: admin only. Consignment (values follow cost rules): admin + PM.
+// What each role may see. Sales + chart: executives only. Consignment: admin + PM, but agreed values (prices) only for executives
+// (EXEC_ROLES, see JobSync.gs).
 // Payments (billing): admin + accounting. Client names: everyone except bench staff.
 var DASH_ROLES = {
   admin:              { sales: true,  consign: true,  payments: true,  clients: true,  inquiries: true },
@@ -36,8 +37,11 @@ var DASH_ROLES = {
 };
 
 function dashboard_(req, user) {
-  var can = DASH_ROLES[user.role];
-  if (!can) return { ok: false, error: 'Not allowed', code: 'FORBIDDEN' };
+  var can0 = DASH_ROLES[user.role];
+  if (!can0) return { ok: false, error: 'Not allowed', code: 'FORBIDDEN' };
+  var exec = typeof isExec_ === 'function' ? isExec_(user) : user.role === 'admin'; // JobSync.gs; executives see prices/margins
+  var can = {}; Object.keys(can0).forEach(function (k) { can[k] = can0[k]; });
+  can.sales = exec; can.prices = exec; // sales + chart follow the executive list
   var missing = [], T = function (name) { return dashRead_(name, missing); };
   var now = new Date(), today = dashDay_(now), month = today.slice(0, 7);
 
@@ -107,7 +111,7 @@ function dashboard_(req, user) {
       var days = d ? dashDaysBetween_(d, today) : null;
       return { ci_id: String(ci.ci_id || ''), consignment_id: String(ci.consignment_id || ''), item_id: String(ci.item_id || ''),
         jo: String(ci.jo || it.jo || ''), description: String(it.name || it.description || ''), consignee: people[String(h.consignee_id)] || '',
-        date_out: d, days_out: days, overdue: days != null && days > overdueDays, value: Number(ci.agreed_value || it.agreed_value) || null };
+        date_out: d, days_out: days, overdue: days != null && days > overdueDays, value: exec ? (Number(ci.agreed_value || it.agreed_value) || null) : undefined };
     }).sort(function (a, b) { return (b.days_out || 0) - (a.days_out || 0); });
     var outJos = {}; outItems.forEach(function (x) { if (x.jo) outJos[x.jo] = true; });
     var consignedJos = allJobs.filter(function (j) { return live(j) && String(j.location || '') === 'consigned' && !outJos[String(j.jo)]; }).length;
@@ -146,7 +150,7 @@ function dashboard_(req, user) {
 
   /* ---- later: per-JO email inquiries (placeholder hook, nothing read yet) ---- */
   if (can.inquiries) out.inquiries = typeof dashInquiries_ === 'function' ? dashInquiries_(jobs) : null;
-  return out;
+  return exec || typeof stripPricing_ !== 'function' ? out : stripPricing_(out, user); // belt and braces: no price keys leave for non-executives
 }
 
 /* ---------- helpers (read-only) ---------- */
