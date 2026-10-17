@@ -8,9 +8,9 @@ const C = (s, action, d = {}) => g.call(Object.assign({ action, session: s, devi
 const tab = n => { const d = g._.sheets[n] ? g._.sheets[n].data : []; const h = d[0] || []; return d.slice(1).map(r => Object.fromEntries(h.map((k, i) => [k, r[i] === undefined ? '' : r[i]]))); };
 const deep = (o, k) => JSON.stringify(o).includes('"' + k + '"');
 const EXEC_KEYS = ['markup', 'markups', 'srp', 'your_price', 'margin', 'quote_amount', 'srp_total'];
-// the owner's example: 14k gold necklace, 1 ct look (10 DC 0.50 ct), stock order
+// the owner's example: 14k necklace, one D10C stone (coarse diamond bench stone) 0.50 ct, stock order
 const EX = { kind: 'stock', materials: [{ code: 'alloy_14k', grams: 5 }], labor: [{ code: 'stonesetter', hours: 1.5 }, { code: 'polisher', hours: 1.5 }],
-  stones: [{ label: 'Diamond VVS', pcs: 10, carats: 0.5 }] };
+  stones: [{ code: 'D10C', qty: 1, ct: 0.5 }] };
 
 ok(C(adm, 'costRates').code === 'NO_TABS', 'before setupCosting: clear "run setupCosting" answer');
 g.setupJobs(); g.call({ jo: '26-001', page: 1, imageBase64: Buffer.from('j').toString('base64') });
@@ -26,7 +26,7 @@ ok(C('', 'costRates').code === 'NO_SESSION', 'signed out: no access');
 const ra = C(adm, 'costRates'), rp = C(pm, 'costRates');
 ok(ra.exec && ra.markups.length === 4 && ra.rates.every(r => r.category !== 'markup'), 'admin gets rates + the 4 markups');
 ok(rp.ok && !rp.exec && !deep(rp, 'markups') && !deep(rp, 'markup') && rp.rates.length === 12, 'PM gets material/labor/stone/FX rates, no markups');
-ok(rp.rates.find(r => r.code === 'gold_14k').rate === 5209.17 && rp.rates.find(r => r.code === 'goldsmith').rate === 174.25, 'PM sees material + labor rates');
+ok(rp.rates.find(r => r.code === 'gold_14k').rate === 5209.17 && rp.rates.find(r => r.code === 'goldsmith').rate === 176.25, 'PM sees material + labor rates');
 
 // the owner's numbers
 let a = C(adm, 'costCalc', { estimate: Object.assign({ your_price: 120000 }, EX) }).result;
@@ -36,19 +36,25 @@ ok(a.margin.at_srp === 68118, 'margin at SRP = 68,118');
 ok(a.your_price === 120000 && a.margin.at_your_price === 58996.25, 'margin at Your price 120,000 = 58,996.25');
 const rep = C(adm, 'costCalc', { estimate: Object.assign({}, EX, { kind: 'repair' }) }).result;
 ok(rep.markup.labor === 3 && rep.srp.labor === 1586.25, 'repairs use labor ×3');
+ok(a.stones[0].code === 'D10C' && a.stones[0].qty === 1 && a.stones[0].cost === 20475, 'D10C is a stone code: 1 pc × 0.50 ct × $650 × 63 = 20,475');
+const many = C(adm, 'costCalc', { estimate: { stones: [{ code: 'D10C', qty: 10, ct: 0.05, usd_per_ct: 650 }, { code: 'RD1', qty: 4, ct: 0.1, usd_per_ct: 1000, fx: 60 }] } }).result;
+ok(many.stones[0].cost === 20475 && many.stones[0].total_ct === 0.5 && many.stones[1].cost === 24000 && many.cost.stones === 44475, 'per-piece lines: qty × ct each × $/ct × USD rate, summed');
+ok(C(pm, 'costCalc', { estimate: { stones: [{ code: 'D10C', qty: 0, ct: 0.5 }, { code: 'X', qty: 2, ct: '' }] } }).result.stones.length === 0, 'a stone line without qty or ct is ignored');
+ok(C(adm, 'costCalc', { estimate: { labor: [{ code: 'goldsmith', hours: 2 }] } }).result.cost.total === 352.5, 'goldsmith (Romy) 176.25/h');
 let p = C(pm, 'costCalc', { estimate: EX }).result;
 ok(p.cost.total === 61003.75 && p.cost.labor === 528.75 && p.labor[0].rate === 220, 'PM gets the same raw costs + line rates');
 ok(EXEC_KEYS.every(k => !deep(p, k)), 'PM result has no markup, SRP, price or margin');
 ok(C(pm, 'costCalc', { estimate: Object.assign({ your_price: 1 }, EX) }).code === 'FORBIDDEN', 'PM sending a price is refused');
 ok(tab('AuditLog').some(r => r.action === 'denied' && /pricing input/.test(r.detail)), '...and logged');
-ok(C(pm, 'costCalc', { estimate: { materials: [{ code: 'silver', grams: 3 }] } }).result.missing_rates.join() === 'silver', 'a metal with no rate yet is flagged');
+ok(C(pm, 'costCalc', { estimate: { materials: [{ code: 'silver', grams: 3 }, { code: 'platinum', grams: 1 }] } }).result.missing_rates.join() === 'silver,platinum', 'silver + platinum flagged until rates are entered');
+ok(rp.rates.filter(r => r.rate == null).map(r => r.code).join() === 'silver,platinum', 'silver + platinum seeded with no rate');
 ok(C(pm, 'costCalc', { estimate: { materials: [{ code: 'silver', grams: 3, rate: 60 }] } }).result.cost.total === 180, 'a rate typed on the line is used');
 const R = { material: { alloy_14k: 8000 }, labor: { stonesetter: 220, polisher: 132.5 }, stone: { diamond_usd_ct: 650 }, fx: { usd_php: 63 }, markup: { materials: 2.5, labor_stock: 2.8, labor_repair: 3, stones: 1.35 } };
 const web = require('/workspace/oyp/estimate.js').calc;
 let same = true; for (let i = 0; i < 300; i++) {
   const e = { kind: i % 3 ? 'stock' : 'repair', your_price: i % 2 ? Math.round(Math.random() * 2e5) : '', materials: [{ code: 'alloy_14k', grams: +(Math.random() * 30).toFixed(2) }],
     labor: [{ code: 'polisher', hours: +(Math.random() * 9).toFixed(2) }, { code: 'stonesetter', hours: +(Math.random() * 4).toFixed(1), rate: i % 5 ? '' : 250 }],
-    stones: [{ carats: +(Math.random() * 3).toFixed(3), usd_per_ct: i % 4 ? '' : 900, fx: i % 7 ? '' : 58.5 }] };
+    stones: [{ code: 'D10C', qty: 1 + (i % 12), ct: +(Math.random() * 0.6).toFixed(3), usd_per_ct: i % 4 ? '' : 900, fx: i % 7 ? '' : 58.5 }, { code: 'RD', qty: i % 3, ct: 0.02 }] };
   if (JSON.stringify(g.costCalc_(e, R, true)) !== JSON.stringify(web(e, R, true))) { same = false; console.log(e); break; }
 }
 ok(same, 'staff-app formula = server formula (300 random estimates)');

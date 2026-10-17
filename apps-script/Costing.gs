@@ -9,7 +9,8 @@
  * Formula (owner's costing sheet, 2026-10-17):
  *   materials = grams × rate per gram        → SRP × materials markup (2.5)
  *   labor     = hours × rate per hour        → SRP × 2.8 (stock / making of orders) or × 3 (repairs)
- *   stones    = carats × USD per ct × USD→PHP → SRP × 1.35
+ *   stones    = per line: qty (pieces) × carat per piece × USD per ct × USD→PHP → SRP × 1.35
+ *               (a line is one stone code/description, e.g. D10C = coarse diamond bench stone; the code is not a count)
  *   cost = sum of raw costs; SRP = sum of marked-up parts; margin = price − cost (at SRP and at "Your price").
  * Visibility: admin + production_manager may estimate. Only executives (EXEC_ROLES, default admin) get markups, SRP,
  * Your price and margins; everyone else gets raw inputs and raw costs only, enforced here and by stripPricing_.
@@ -26,7 +27,7 @@ var COST = {
     ['material', 'alloy_14k', '14KT alloy', 'g', 8000, 10], ['material', 'alloy_18k', '18KT alloy', 'g', 11500, 11],
     ['material', 'gold_24k', '24KT gold', 'g', 8930, 20], ['material', 'gold_18k', '18KT gold', 'g', 6697.5, 21],
     ['material', 'gold_14k', '14KT gold', 'g', 5209.17, 22], ['material', 'silver', 'Silver', 'g', '', 30], ['material', 'platinum', 'Platinum', 'g', '', 31],
-    ['labor', 'goldsmith', 'Goldsmith (Romy)', 'h', 174.25, 10], ['labor', 'stonesetter', 'Stone setter (Roy)', 'h', 220, 11], ['labor', 'polisher', 'Polisher', 'h', 132.5, 12],
+    ['labor', 'goldsmith', 'Goldsmith (Romy)', 'h', 176.25, 10], ['labor', 'stonesetter', 'Stone setter (Roy)', 'h', 220, 11], ['labor', 'polisher', 'Polisher', 'h', 132.5, 12],
     ['stone', 'diamond_usd_ct', 'Diamond (USD per carat)', 'USD/ct', 650, 10], ['fx', 'usd_php', 'USD → PHP (rate today)', 'PHP', 63, 10],
     ['markup', 'materials', 'Materials markup', 'x', 2.5, 10], ['markup', 'labor_stock', 'Labor markup · stock & making of orders', 'x', 2.8, 11],
     ['markup', 'labor_repair', 'Labor markup · repairs', 'x', 3, 12], ['markup', 'stones', 'Stones markup', 'x', 1.35, 13]
@@ -100,7 +101,7 @@ function costRateSave_(req, user, exec) {
 function costR2_(x) { return Math.round((Number(x) || 0) * 100) / 100; }
 /**
  * est = { kind: 'stock'|'repair', materials: [{code, grams, rate?}], labor: [{code, hours, rate?}],
- *         stones: [{label, pcs, carats, usd_per_ct?, fx?}], your_price? }
+ *         stones: [{code, qty, ct (per piece), usd_per_ct?, fx?}], your_price? }
  * rates = { material: {code: rate}, labor: {...}, stone: {diamond_usd_ct}, fx: {usd_php}, markup: {...} }
  */
 function costCalc_(est, rates, withPrices) {
@@ -114,11 +115,12 @@ function costCalc_(est, rates, withPrices) {
     var rate = l.rate != null && l.rate !== '' ? Number(l.rate) : (rates.labor || {})[l.code];
     return { code: l.code || '', label: l.label || '', hours: Number(l.hours), rate: rate == null ? null : Number(rate), cost: line(l.hours, rate) };
   });
-  var stones = (est.stones || []).filter(function (s) { return Number(s.carats) > 0; }).map(function (s) {
+  var stones = (est.stones || []).filter(function (s) { return Number(s.qty) > 0 && Number(s.ct) > 0; }).map(function (s) {
     var usd = s.usd_per_ct != null && s.usd_per_ct !== '' ? Number(s.usd_per_ct) : (rates.stone || {}).diamond_usd_ct;
     var fx = s.fx != null && s.fx !== '' ? Number(s.fx) : (rates.fx || {}).usd_php;
-    return { label: s.label || 'Diamond', pcs: Number(s.pcs) || 0, carats: Number(s.carats), usd_per_ct: Number(usd) || 0, fx: Number(fx) || 0,
-      cost: costR2_(Number(s.carats) * (Number(usd) || 0) * (Number(fx) || 0)) };
+    var qty = Number(s.qty), ct = Number(s.ct);
+    return { code: String(s.code || '').trim(), qty: qty, ct: ct, total_ct: Math.round(qty * ct * 1000) / 1000, usd_per_ct: Number(usd) || 0, fx: Number(fx) || 0,
+      cost: costR2_(qty * ct * (Number(usd) || 0) * (Number(fx) || 0)) };
   });
   var sum = function (a) { return costR2_(a.reduce(function (t, x) { return t + x.cost; }, 0)); };
   var out = { kind: est.kind === 'repair' ? 'repair' : 'stock', materials: mats, labor: labor, stones: stones,
