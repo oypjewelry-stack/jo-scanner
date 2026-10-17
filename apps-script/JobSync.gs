@@ -245,6 +245,18 @@ function jobItemTypes_() { // built-in kinds + Settings item_types_extra (descri
   return (jobItemTypesCache_ = out);
 }
 /** Scan set of a file name: '26-001-p1-101726b.jpg' -> '101726b'; an older name without a date tag ('26-001-p1.jpg') -> '' (legacy, oldest). */
+/** Scanner swipe-delete (Code.gs deletePage_): the OcrLog rows of trashed page files become review_state "deleted" (hidden everywhere). */
+function markScanDeleted_(jo, fileIds) {
+  if (!jobTabsReady_()) return 0;
+  var key = jobKey_(jo), want = {}, n = 0; (fileIds || []).forEach(function (id) { want[String(id)] = true; });
+  return withLock_(function () {
+    jobRows_('OcrLog').forEach(function (r) {
+      if (jobKey_(r.jo) === key && want[String(r.file_id)] && r.review_state !== 'deleted') { jobSet_('OcrLog', r._row, { review_state: 'deleted' }); n++; }
+    });
+    audit_('scanner', 'scanDeleted', key, '', n + ' page(s) moved to Drive Trash: ' + Object.keys(want).join(', '));
+    return n;
+  });
+}
 function jobScanSet_(name) { var m = String(name || '').match(/-p\d+-(\d{6}[a-z]?)\.jpe?g$/i); return m ? m[1].toLowerCase() : ''; }
 function jobSetSort_(set) { return set ? '1' + set.slice(4, 6) + set.slice(0, 4) + (set.slice(6) || ' ') : '0'; } // MMDDYY[x] -> YYMMDD order; legacy first
 function jobSetDay_(set) { return set ? '20' + set.slice(4, 6) + '-' + set.slice(0, 2) + '-' + set.slice(2, 4) : ''; }
@@ -253,7 +265,7 @@ function jobSetDay_(set) { return set ? '20' + set.slice(4, 6) + '-' + set.slice
 function jobPages_() {
   var sets = {}, firstAt = {};
   jobRows_('OcrLog').forEach(function (r) {
-    if (r.review_state === 'replaced' || r.review_state === 'discarded' || !r.file_id) return;
+    if (r.review_state === 'replaced' || r.review_state === 'discarded' || r.review_state === 'deleted' || !r.file_id) return;
     var k = jobKey_(r.jo), st = String(r.scan_set || '') || jobScanSet_(r.file_name), pg = Number(r.page) || 1;
     sets[k] = sets[k] || {}; sets[k][st] = sets[k][st] || {};
     sets[k][st][pg] = { page: pg, file_id: String(r.file_id), scan_id: String(r.scan_id) };
@@ -298,7 +310,7 @@ function jobSearch_(req, user) {
 /** A card photo as a data URL, only for a file that OcrLog ties to that JO (Drive files stay private). */
 function jobPhoto_(req, user) {
   var key = jobKey_(req.jo), id = String(req.file_id || '');
-  var mine = jobRows_('OcrLog').some(function (r) { return jobKey_(r.jo) === key && String(r.file_id) === id && r.review_state !== 'discarded'; });
+  var mine = jobRows_('OcrLog').some(function (r) { return jobKey_(r.jo) === key && String(r.file_id) === id && r.review_state !== 'discarded' && r.review_state !== 'deleted'; });
   if (!key || !id || !mine) { audit_(user.username, 'denied', 'jobPhoto', req.device_id, key + ' ' + id); return { ok: false, error: 'Not allowed', code: 'FORBIDDEN' }; }
   try {
     var f = DriveApp.getFileById(id), b = req.size === 'full' ? f.getBlob() : (f.getThumbnail() || f.getBlob());

@@ -19,9 +19,9 @@ module.exports = function load() {
     getFoldersByName(n) { const s = this.subs[n]; let used = false; return { hasNext: () => !!s && !used, next: () => { used = true; return s; } }; },
     createFolder(n) { return (this.subs[n] = mkFolder(name + '/' + n)); },
     getFilesByName(n) { const l = this.files.filter(x => x.name === n && !x.trashed); let i = 0; return { hasNext: () => i < l.length, next: () => l[i++] }; },
-    createFile(b) { const x = { name: b.name, trashed: false, id: 'file-' + (++fileSeq), getId() { return this.id; }, getName() { return this.name; }, isTrashed() { return this.trashed; }, getUrl() { return 'mock://file/' + this.id; }, setTrashed(v) { this.trashed = v; }, description: '', setDescription(d) { this.description = String(d); return this; }, getDescription() { return this.description; } }; this.files.push(x); return x; } };
+    createFile(b) { const folder = this; const x = { name: b.name, getParents() { let used = false; return { hasNext: () => !used, next: () => { used = true; return folder; } }; }, trashed: false, id: 'file-' + (++fileSeq), getId() { return this.id; }, getName() { return this.name; }, isTrashed() { return this.trashed; }, getUrl() { return 'mock://file/' + this.id; }, setTrashed(v) { this.trashed = v; }, description: '', setDescription(d) { this.description = String(d); return this; }, getDescription() { return this.description; } }; this.files.push(x); fileReg[x.id] = x; return x; } };
     return (folders[name] = f); }
-  let fileSeq = 0; const ocrQueue = [];
+  let fileSeq = 0; const fileReg = {}; const ocrQueue = [];
   const ctx = {
     console, Date: class extends Date { constructor(...a) { a.length ? super(...a) : super(clock); } static now() { return clock; } },
     PropertiesService: { getScriptProperties: () => ({ getProperty: k => props[k] ?? null, setProperty: (k, v) => { props[k] = v; }, deleteProperty: k => { delete props[k]; } }) },
@@ -36,11 +36,11 @@ module.exports = function load() {
     Drive: { Files: { create: () => ({ id: 'doc' }) } },
     DocumentApp: { openById: () => ({ getBody: () => ({ getText: () => (ocrQueue.length ? ocrQueue.shift() : '') }) }) },
     MailApp: { sent: [], sendEmail(o) { this.sent.push(o); } },
-    DriveApp: { getRootFolder() { return mkFolder('root'); }, getFileById: id => ({ setTrashed() {}, getThumbnail: () => ({ getContentType: () => 'image/png', getBytes: () => Buffer.from('img:' + id) }), getBlob: () => ({ getContentType: () => 'image/jpeg', getBytes: () => Buffer.from('full:' + id) }) }) },
+    DriveApp: { getRootFolder() { return mkFolder('root'); }, getFileById: id => fileReg[id] ? Object.assign(fileReg[id], { getThumbnail: () => ({ getContentType: () => 'image/png', getBytes: () => Buffer.from('img:' + id) }), getBlob: () => ({ getContentType: () => 'image/jpeg', getBytes: () => Buffer.from('full:' + id) }) }) : ({ setTrashed() {}, getThumbnail: () => ({ getContentType: () => 'image/png', getBytes: () => Buffer.from('img:' + id) }), getBlob: () => ({ getContentType: () => 'image/jpeg', getBytes: () => Buffer.from('full:' + id) }) }) },
   };
   vm.createContext(ctx);
   for (const f of ['Code.gs', 'Auth.gs', 'Customers.gs', 'Dashboard.gs', 'JobSync.gs', 'Costing.gs', 'People.gs'].filter(f => fs.existsSync(__dirname + '/../apps-script/' + f))) vm.runInContext(fs.readFileSync(__dirname + '/../apps-script/' + f, 'utf8'), ctx);
   ctx.call = req => JSON.parse(ctx.doPost({ postData: { contents: JSON.stringify(req) } }).text);
-  ctx._ = { folders, ocrQueue, mail: ctx.MailApp.sent, props, cache, sheets, advance: ms => { clock += ms; } };
+  ctx._ = { fileReg, folders, ocrQueue, mail: ctx.MailApp.sent, props, cache, sheets, advance: ms => { clock += ms; } };
   return ctx;
 };

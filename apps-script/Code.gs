@@ -12,6 +12,7 @@ function doPost(e) {
     if (req.action) return json_(handleAction_(req)); // sign-in / roles (Auth.gs)
     var token = PropertiesService.getScriptProperties().getProperty('TOKEN');
     if (token && req.token !== token) return json_({ ok: false, error: 'Bad token' });
+    if (req.op === 'deletePage') return json_(deletePage_(req)); // scanner swipe-delete (same TOKEN as uploads)
     var jo = normJO_(req.jo);
     if (!jo) return json_({ ok: false, error: 'Missing JO number' });
     if (!req.imageBase64) return json_({ ok: false, error: 'Missing image' });
@@ -31,7 +32,7 @@ function doPost(e) {
     try { ocrText = ocr_(blob, filename); } catch (err) { ocrError = String(err); }
     var found = findJOs_(ocrText);
     var job = typeof recordScan_ === 'function' ? recordScan_(req, jo, file, folder, ocrText, found, ocrError) : null; // JobSync.gs
-    return json_({ ok: true, filename: filename, fileUrl: file.getUrl(), folderUrl: folder.getUrl(), ocrText: ocrText,
+    return json_({ ok: true, filename: filename, fileId: file.getId(), fileUrl: file.getUrl(), folderUrl: folder.getUrl(), ocrText: ocrText,
       joFound: found, match: found.indexOf(jo) !== -1, ocrError: ocrError });
   } catch (err) {
     return json_({ ok: false, error: String(err) });
@@ -71,6 +72,38 @@ function scanName_(folder, jo, req) {
   }
   if (mine === null) { var abc = 'bcdefghijklmnopqrstuvwxyz', i = 0; mine = ''; while (used[mine] && i < abc.length) mine = abc.charAt(i++); }
   return base + '-p' + page + '-' + tag + mine + '.jpg';
+}
+
+/* ---------- scanner swipe-delete ----------
+ * {op:'deletePage', jo, file_id?, filename?, scan?, page?}. Only ever moves a page photo to Drive Trash (recoverable for 30 days),
+ * never deletes for good, and only a file that sits in "Job Order Cards/<JO>" and is named like a page of that JO.
+ * With file_id: that file (and, if filename is sent, it must match). Without: the page the given scan session saved (file description).
+ * The OcrLog row of a trashed file is marked "deleted" (JobSync.gs), so the back office stops showing it. */
+function deletePage_(req) {
+  var jo = normJO_(req.jo); if (!jo) return { ok: false, error: 'Missing JO number' };
+  var root = DriveApp.getRootFolder().getFoldersByName(PARENT_FOLDER); if (!root.hasNext()) return { ok: true, deleted: 0 };
+  var fit = root.next().getFoldersByName(jo); if (!fit.hasNext()) return { ok: true, deleted: 0 };
+  var folder = fit.next(), base = safeName_(jo).replace(/[.\-]/g, '\\$&');
+  var pageRe = new RegExp('^' + base + '-p\\d+(?:-\\d{6}[a-z]?)?\\.jpe?g$', 'i'), targets = [];
+  if (req.file_id) {
+    var f; try { f = DriveApp.getFileById(String(req.file_id)); } catch (e) { return { ok: true, deleted: 0, note: 'not found' }; }
+    var inside = false, ps = f.getParents(); while (ps.hasNext()) if (ps.next().getId() === folder.getId()) inside = true;
+    if (!inside || !pageRe.test(f.getName()) || (req.filename && f.getName() !== safeName_(req.filename))) return { ok: false, error: 'Not a page of this JO', code: 'FORBIDDEN' };
+    targets.push(f);
+  } else {
+    var session = String(req.scan || '').replace(/[^\w@.\-]/g, '').slice(0, 80), page = parseInt(req.page, 10);
+    if (!session || !(page > 0)) return { ok: false, error: 'Missing file' };
+    var one = new RegExp('^' + base + '-p' + page + '-\\d{6}[a-z]?\\.jpe?g$', 'i'), it = folder.getFiles();
+    while (it.hasNext()) {
+      var x = it.next(); if (x.isTrashed && x.isTrashed()) continue;
+      var d = ''; try { d = String(x.getDescription() || ''); } catch (e) {}
+      if (one.test(x.getName()) && d === SCAN_TAG + session) targets.push(x);
+    }
+  }
+  var ids = [];
+  targets.forEach(function (t) { if (t.isTrashed && t.isTrashed()) return; t.setTrashed(true); ids.push(t.getId()); }); // Drive Trash only
+  var marked = 0; try { if (ids.length && typeof markScanDeleted_ === 'function') marked = markScanDeleted_(jo, ids); } catch (e) {} // JobSync.gs
+  return { ok: true, deleted: ids.length, file_ids: ids, marked: marked };
 }
 
 function getOrCreate_(parent, name) {

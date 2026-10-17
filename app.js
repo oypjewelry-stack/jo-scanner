@@ -442,9 +442,27 @@ async function sendPage(it) {
   if (!r.ok) { const e = new Error(r.error || 'upload failed'); e.permanent = /bad token|missing jo|missing image/i.test(e.message); throw e; }
   return r;
 }
+// swipe-delete: tell Drive to trash a page (Code.gs deletePage_). An older script answers "Missing image": it can't delete yet.
+async function deletePage(t) {
+  let res;
+  try {
+    res = await fetch(api(), { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ token: localStorage.getItem(LS.token) || '', op: 'deletePage', jo: t.jo, page: t.page, scan: t.scan || '', file_id: t.fileId || '', filename: t.savedName || '' }) });
+  } catch (e) { throw new Error('no connection'); }
+  let r; try { r = await res.json(); } catch (e) { const er = new Error('server error ' + res.status); er.permanent = true; throw er; }
+  if (!r.ok && /missing image|unknown/i.test(r.error || '')) return { unsupported: true };
+  if (!r.ok) { const e = new Error(r.error || 'delete failed'); e.permanent = true; throw e; }
+  return r;
+}
+function deletedNote(t, r) {
+  const what = 'Page ' + t.page + ' of JO ' + t.jo;
+  if (r && r.unsupported) return note('Removed from phone; delete in Drive needs the update.');
+  if (r && r.ok === false) return note(what + ': removed from phone, but Drive said: ' + r.error);
+  note(r && r.deleted ? what + ' deleted. It is in Drive Trash for 30 days.' : what + ' removed.');
+}
 let store;
 try { store = window.indexedDB ? OYPQueue.idbStore() : OYPQueue.memoryStore(); } catch (e) { store = OYPQueue.memoryStore(); }
-const queue = OYPQueue.create({ store, send: sendPage, normJO, online: () => navigator.onLine !== false, onChange: () => renderQueue() });
+const queue = OYPQueue.create({ store, send: sendPage, del: deletePage, onDeleted: deletedNote, normJO, online: () => navigator.onLine !== false, onChange: () => renderQueue() });
 const isOn = () => navigator.onLine !== false;
 function statusText(c) {
   if (c.pending) return (isOn() ? c.pending + ' still uploading' : c.pending + ' waiting for internet') + (c.failed ? ' · ' + c.failed + ' failed' : '');
@@ -455,7 +473,8 @@ function rowHtml(it, withJO) {
   const st = it.state === 'saved' ? 'ok' : it.state === 'mismatch' ? 'mm' : it.state === 'failed' ? 'err' : 'queued';
   const btns = it.state === 'failed' ? `<div class="acts"><button class="retry" data-retry="${esc(it.id)}">Retry</button><button class="rm" data-rm="${esc(it.id)}">Remove</button></div>`
     : it.state === 'uploading' ? '<span class="spin" aria-hidden="true"></span>' : '';
-  return `<li class="${it.state}"><img alt="" src="${esc(it.thumb)}"><div class="tx"><div class="nm">${withJO ? 'JO ' + esc(it.jo) + ' · page ' + esc(it.page) : esc(it.filename)}</div>`
+  const sw = !withJO && it.state !== 'failed' ? ` data-sw="${esc(it.id)}"` : ''; // page strip: swipe left to delete (failed rows keep Remove)
+  return `<li class="${it.state}"${sw}><img alt="" src="${esc(it.thumb)}"><div class="tx"><div class="nm">${withJO ? 'JO ' + esc(it.jo) + ' · page ' + esc(it.page) : esc(it.filename)}</div>`
     + `<div class="st ${st}">${esc(OYPQueue.label(it, isOn()))}</div></div>${btns}</li>`;
 }
 function renderQueue() {
@@ -464,7 +483,7 @@ function renderQueue() {
   const qs = $('qStatus'); qs.textContent = c.total ? txt : ''; qs.className = 'qstatus' + (c.failed ? ' err' : c.pending ? ' busy' : ' ok');
   const ss = $('scanStatus'); ss.querySelector('span').textContent = txt; ss.className = 'sstat' + (c.failed ? ' err' : c.pending ? ' busy' : ' ok');
   const mine = queue.list().filter(x => x.scan && x.scan === state.scan).reverse();
-  $('pages').innerHTML = mine.map(it => rowHtml(it, false)).join('');
+  if (swHold) swDirty = true; else $('pages').innerHTML = mine.map(it => rowHtml(it, false)).join(''); // not while a row is being swiped / asked about
   if ($('queueView').classList.contains('hidden')) return;
   const all = queue.list().slice().reverse(), grp = (t, l) => l.length ? `<li class="grp">${t}</li>` + l.map(it => rowHtml(it, true)).join('') : '';
   const bad = all.filter(x => x.state === 'failed' || x.state === 'mismatch'), busy = all.filter(x => x.state === 'waiting' || x.state === 'uploading'),
@@ -479,10 +498,62 @@ document.addEventListener('click', e => {
   const m = e.target.closest('[data-rm]');
   if (m && confirm('Remove this page from the phone? It is NOT saved in Drive, so scan it again later.')) queue.remove(m.dataset.rm);
 });
+
+/* ---------- swipe left to delete (page strip under the camera) ----------
+   Pointer events (iOS + Android). Only a mostly-sideways drag counts; up/down stays a normal scroll (touch-action: pan-y). */
+var swHold = false, swDirty = false; // var: renderQueue may run before this line
+function swRelease() { swHold = false; if (swDirty) { swDirty = false; renderQueue(); } }
+const SWIPE = { START: 10, RATIO: 1.5, MIN: 80, FRAC: 0.35 };
+function swipeAxis(dx, dy) { // null = not decided yet
+  const ax = Math.abs(dx), ay = Math.abs(dy);
+  if (ax < SWIPE.START && ay < SWIPE.START) return null;
+  return ax > ay * SWIPE.RATIO && dx < 0 ? 'h' : 'v';
+}
+function swipePast(dx, width) { return -dx >= Math.max(SWIPE.MIN, (width || 0) * SWIPE.FRAC); }
+const sw = { li: null, id: '', x0: 0, y0: 0, dx: 0, axis: null, pid: null, bg: null };
+function swBack(li, bg) { if (!li) return; li.style.transition = 'transform .18s ease'; li.style.transform = '';
+  setTimeout(() => { li.classList.remove('swiping'); li.style.transition = ''; if (bg) bg.remove(); swRelease(); }, 200); }
+$('pages').addEventListener('pointerdown', e => {
+  const li = e.target.closest('li[data-sw]'); if (!li || e.target.closest('button') || (e.pointerType === 'mouse' && e.button !== 0)) return;
+  Object.assign(sw, { li, id: li.dataset.sw, x0: e.clientX, y0: e.clientY, dx: 0, axis: null, pid: e.pointerId, bg: null });
+});
+$('pages').addEventListener('pointermove', e => {
+  if (!sw.li || e.pointerId !== sw.pid) return;
+  const dx = e.clientX - sw.x0, dy = e.clientY - sw.y0;
+  if (!sw.axis) { sw.axis = swipeAxis(dx, dy); if (!sw.axis) return;
+    if (sw.axis === 'v') { sw.li = null; return; }
+    swHold = true;
+    try { sw.li.setPointerCapture(e.pointerId); } catch (_) {}
+    const bg = document.createElement('div'); bg.className = 'swbg'; bg.innerHTML = '<span>Delete</span>';
+    bg.style.top = sw.li.offsetTop + 'px'; bg.style.height = sw.li.offsetHeight + 'px'; sw.li.parentElement.appendChild(bg); sw.bg = bg;
+    sw.li.classList.add('swiping'); }
+  e.preventDefault();
+  sw.dx = Math.min(0, Math.max(dx, -sw.li.offsetWidth * 0.9)); sw.li.style.transform = `translateX(${sw.dx}px)`;
+  sw.bg.classList.toggle('go', swipePast(sw.dx, sw.li.offsetWidth));
+});
+function swEnd(e) {
+  if (!sw.li || (e && e.pointerId !== sw.pid)) return;
+  const { li, id, bg, dx, axis } = sw; sw.li = null; if (axis !== 'h') return;
+  if (!swipePast(dx, li.offsetWidth) || (e && e.type === 'pointercancel')) return swBack(li, bg);
+  li.style.transition = 'transform .15s ease'; li.style.transform = `translateX(${-Math.max(SWIPE.MIN, li.offsetWidth * SWIPE.FRAC)}px)`;
+  const it = queue.get(id); if (!it) return swBack(li, bg);
+  askDelete(it).then(yes => { if (!yes) return swBack(li, bg); if (bg) bg.remove(); li.remove(); swDirty = true; swRelease(); queue.discard(id).then(r => { if (r.phase === 'removed') note('Page ' + it.page + ' of JO ' + it.jo + ' removed. It was not uploaded yet.'); }); });
+}
+$('pages').addEventListener('pointerup', swEnd); $('pages').addEventListener('pointercancel', swEnd);
+function askDelete(it) {
+  return new Promise(done => {
+    const sent = it.state !== 'waiting', d = document.createElement('div'); d.className = 'swconf'; d.setAttribute('role', 'dialog');
+    d.innerHTML = `<div class="box"><p>Delete page ${esc(it.page)} of JO ${esc(it.jo)}?${sent ? ' It goes to Drive Trash (30 days).' : ' It was not uploaded yet.'}</p>`
+      + '<div class="row"><button type="button" class="ghost" data-no>Cancel</button><button type="button" class="del" data-yes>Delete</button></div></div>';
+    const close = v => { d.remove(); done(v); };
+    d.addEventListener('click', e => { if (e.target.closest('[data-yes]')) close(true); else if (e.target.closest('[data-no]') || e.target === d) close(false); });
+    document.body.appendChild(d); d.querySelector('[data-no]').focus();
+  });
+}
 window.addEventListener('online', () => { queue.wake(); renderQueue(); });
 window.addEventListener('offline', renderQueue);
 queue.load().then(() => queue.wake()).catch(e => { console.error('queue', e); note('This phone could not open its upload store: ' + (e.message || e)); });
-window.__scan = { rotateCanvas, rotation, state, review, openReview, capture, finalConfidence, AUTO_ACCEPT, queue, ensureLive };
+window.__scan = { swipeAxis, swipePast, rotateCanvas, rotation, state, review, openReview, capture, finalConfidence, AUTO_ACCEPT, queue, ensureLive };
 })();
 
 // owner: stone background only while the start screen is shown
