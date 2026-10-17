@@ -26,7 +26,7 @@ module.exports = function load() {
     DriveApp: { getFileById: id => ({ getThumbnail: () => ({ getContentType: () => 'image/png', getBytes: () => Buffer.from('img:' + id) }) }) },
   };
   vm.createContext(ctx);
-  for (const f of ['Code.gs', 'Auth.gs', 'Customers.gs']) vm.runInContext(fs.readFileSync(__dirname + '/../apps-script/' + f, 'utf8'), ctx);
+  for (const f of ['Code.gs', 'Auth.gs', 'Customers.gs', 'Dashboard.gs'].filter(f => fs.existsSync(__dirname + '/../apps-script/' + f))) vm.runInContext(fs.readFileSync(__dirname + '/../apps-script/' + f, 'utf8'), ctx);
   ctx.call = req => JSON.parse(ctx.doPost({ postData: { contents: JSON.stringify(req) } }).text);
   ctx._ = { mail: ctx.MailApp.sent, props, cache, sheets, advance: ms => { clock += ms; } };
   return ctx;

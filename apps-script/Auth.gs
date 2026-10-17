@@ -26,6 +26,7 @@ function handleAction_(req) {
   if (!s) return { ok: false, error: 'Not signed in', code: 'NO_SESSION' };
   if (a === 'me') return { ok: true, user: publicUser_(s.user) };
   if (a === 'logout') { revokeToken_(req.session, 'logout'); audit_(s.user.username, 'logout', '', req.device_id, ''); return { ok: true }; }
+  if (a === 'dashboard' && typeof dashboard_ === 'function') return dashboard_(req, s.user); // Dashboard.gs
   var adminOnly = { listUsers: listUsers_, createUser: createUser_, resetCode: resetCode_, unlockUser: unlockUser_, setActive: setActive_ };
   if (adminOnly[a]) {
     if (s.user.role !== 'admin') { audit_(s.user.username, 'denied', a, req.device_id, 'role ' + s.user.role); return { ok: false, error: 'Not allowed', code: 'FORBIDDEN' }; }
