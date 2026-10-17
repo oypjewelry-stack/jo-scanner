@@ -66,3 +66,12 @@ Do this after the sign-in update above (it needs `Auth.gs`).
 Links: customers `https://oypjewelry-stack.github.io/oyp/my/`, shop `https://oypjewelry-stack.github.io/oyp/shop/`,
 admin screens in the back office under **Customers** and **Shop listings**.
 Email limit: Gmail allows about 100 automatic emails a day; the script caps itself at 80 codes/day, 3 per email per hour.
+
+## Scans -> Sheet (JobSync.gs) — one-time update
+1. Add a new **Script** file named `JobSync` and paste `apps-script/JobSync.gs`.
+2. In `Code.gs` `doPost`, right after the line `var found = findJOs_(ocrText);`, add:
+   `var job = typeof recordScan_ === 'function' ? recordScan_(req, jo, file, folder, ocrText, found, ocrError) : null; // JobSync.gs`
+3. Select `setupJobs` and click **Run**. It only ADDS the tabs JobOrders, JobStages, Clients, OcrLog (existing tabs are left as they are).
+4. **Deploy → Manage deployments → Edit → New version → Deploy**.
+Each uploaded page then adds an OcrLog row; the first scan of a JO adds a draft JobOrders row + its first stage. Re-scans never
+duplicate and only fill blank cells (overwrite needs `overwrite:true`). Until setupJobs is run, scans work exactly as before.

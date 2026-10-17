@@ -30,6 +30,7 @@ function doPost(e) {
     var ocrText = '', ocrError = '';
     try { ocrText = ocr_(blob, filename); } catch (err) { ocrError = String(err); }
     var found = findJOs_(ocrText);
+    var job = typeof recordScan_ === 'function' ? recordScan_(req, jo, file, folder, ocrText, found, ocrError) : null; // JobSync.gs
     return json_({ ok: true, fileUrl: file.getUrl(), folderUrl: folder.getUrl(), ocrText: ocrText,
       joFound: found, match: found.indexOf(jo) !== -1, ocrError: ocrError });
   } catch (err) {
