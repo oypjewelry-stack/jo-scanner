@@ -6,11 +6,13 @@
 <title>OYP Card Scanner</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Libre+Bodoni:wght@400;500;600&family=Bodoni+Moda:opsz,wght@6..96,400;6..96,500&family=Inter:wght@500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=1792164775b">
+<link rel="stylesheet" href="style.css?v=20261017q">
 <link rel="icon" type="image/png" href="favicon.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 </head><body>
-<header class="top"><img class="logo" src="logo.png" alt="OYP Jewelry"><span class="title serif">Card Scanner</span><button id="btnSettings" class="icon" aria-label="Menu"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#000" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg></button></header>
+<header class="top"><img class="logo" src="logo.png" alt="OYP Jewelry"><span class="title serif">Card Scanner</span><button id="btnMenu" class="icon" aria-label="Menu" aria-haspopup="true"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#000" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg></button></header>
+<div id="menu" class="menu hidden"></div>
+<div id="note" class="note hidden" role="status"></div>
 
 <section id="startView" class="view">
   <h1>Scan a job order card</h1>
@@ -21,7 +23,9 @@
     <button id="btnMic" class="mic hidden" type="button" aria-label="Say the JO number" aria-pressed="false"><svg viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg></button>
   </div>
   <button id="btnStart" class="primary">SCAN</button>
-  <p id="apiWarn" class="warn hidden">No backend URL set yet. Tap Settings to add it (pages are kept on this phone until then).</p>
+  <button id="btnQueue" class="qbtn" type="button">Pending uploads <span class="qbadge hidden"></span></button>
+  <p id="qStatus" class="qstatus"></p>
+  <p id="apiWarn" class="warn hidden">No backend URL set yet. Open Menu → Scanner settings to add it (pages are kept on this phone until then).</p>
 </section>
 
 <section id="scanView" class="view hidden">
@@ -30,19 +34,31 @@
     <video id="video" playsinline muted autoplay></video>
     <canvas id="overlay"></canvas>
     <div id="hint" class="hint">Starting camera…</div>
+    <div id="flash" class="flash"></div>
   </div>
   <div class="controls">
-    <label class="toggle"><input type="checkbox" id="autoSnap" checked> Auto-snap</label>
+    <label class="toggle"><input type="checkbox" id="autoSnap"> Auto-snap</label>
     <button id="btnCapture" class="shutter" aria-label="Capture page"></button>
     <label class="toggle">Crop <input type="checkbox" id="doCrop" checked></label>
   </div>
+  <button id="scanStatus" class="sstat" type="button"><span>All saved ✓</span><em>Pending uploads <b class="qbadge hidden"></b></em></button>
   <ul id="pages" class="pages"></ul>
   <button id="btnDone" class="primary">DONE</button>
 </section>
 
+<section id="queueView" class="view hidden">
+  <div class="qhead"><button id="btnQBack" class="back" type="button" aria-label="Back">‹ Back</button><h1>Pending uploads</h1></div>
+  <p id="qSummary" class="qsum"></p>
+  <p class="muted qhelp">Every page is stored on this phone first and uploads by itself, one at a time, even after you tap Done or close the page.</p>
+  <button id="btnRetryFailed" class="ghost hidden" type="button">Retry all failed</button>
+  <ul id="qList" class="pages qlist"></ul>
+</section>
+
 <dialog id="settings">
   <form method="dialog">
-    <h2>Settings</h2>
+    <h2>Scanner settings</h2>
+    <label class="lbl" for="apiRotate">Rotate pages</label>
+    <select id="apiRotate" class="mid"><option value="cw">90° clockwise (card shot on its side)</option><option value="none">None</option><option value="ccw">90° counter-clockwise</option><option value="180">180°</option></select>
     <label class="lbl">Apps Script web app URL</label>
     <input id="apiUrl" class="mid" placeholder="https://script.google.com/macros/s/…/exec">
     <label class="lbl">Shared token (optional)</label>
@@ -51,18 +67,20 @@
   </form>
 </dialog>
 <div id="review" class="review hidden">
-  <div class="rvhead"><span id="rvTitle" class="serif">Check the crop</span><span class="muted rvsub">Drag the corners to fit the card</span></div>
+  <div class="rvhead"><span id="rvTitle" class="serif">Check the crop</span><span id="rvSub" class="muted rvsub">Drag the corners if needed, then Use</span></div>
   <div id="rvStage" class="rvstage">
     <canvas id="rvCanvas"></canvas>
     <svg id="rvLines" class="rvlines"></svg>
     <div class="handle"></div><div class="handle"></div><div class="handle"></div><div class="handle"></div>
   </div>
   <div class="rvopts"><label class="enh"><input type="checkbox" id="rvEnhance" checked> Enhance</label><img id="rvPreview" class="rvpreview" alt="Preview"></div>
-  <div class="rvbar"><button id="rvRetake" class="ghost">Retake</button><button id="rvNoCrop" class="ghost">No crop</button><button id="rvUse" class="primary">Use</button></div>
+  <div class="rvbar"><button id="rvRetake" class="ghost">Retake</button><button id="rvNoCrop" class="ghost">Skip crop</button><button id="rvUse" class="primary">Use</button></div>
 </div>
 <canvas id="work" class="hidden"></canvas>
 <div id="toast" class="toast hidden"><img id="toastImg" alt=""><span>Saved</span><button id="toastAdjust" class="ghost">Adjust</button></div>
-<script src="detector.js?v=1792164775b"></script>
-<script src="app.js?v=1792164775b"></script>
-<script src="voice.js?v=1792164775b"></script>
+<script src="queue.js?v=20261017q"></script>
+<script src="https://oypjewelry.com/nav.js" async></script>
+<script src="detector.js?v=20261017q"></script>
+<script src="app.js?v=20261017q"></script>
+<script src="voice.js?v=20261017q"></script>
 </body></html>

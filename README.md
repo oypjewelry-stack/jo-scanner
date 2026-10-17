@@ -25,16 +25,20 @@ Open the page on the iPhone, tap Settings, paste the Web app URL and the token, 
 `https://YOUR-SITE/?api=WEB_APP_URL&token=SECRET`
 
 ## 4. Use it
-1. Type the JO number (`26-001`, `JO 26-001` and `26,001` are all accepted), then tap **SCAN**. Allow camera access once. The stream stays open, so you won't be asked again for each shot or for the next card.
-2. Lay the card on a **dark surface**. Once the outline turns gold and the card is held steady for about 1 second, the app snaps the page automatically. You can also tap the big button. **Crop** straightens the page; turn it off to keep the full frame.
-3. Flip to the next page. Each page shows its upload status: *Saved ✓ JO verified*, *no JO read* (normal for back pages), or an amber **mismatch** warning showing the number the card actually reads. Tap **Retry** after a failed upload.
-4. Tap **Done with this card**, then type the next JO number.
+1. Type the JO number (`26-001`, `JO 26-001` and `26,001` are all accepted), then tap **SCAN**. Allow camera access once.
+2. Lay the card on a **dark surface** and tap the big gold shutter. If the card outline is clean the page is saved straight away (tap **Adjust** on the little preview to fix the crop); otherwise the corner screen opens: drag the corners, then **Use**, **Skip crop** or **Retake**. **Auto-snap** is off by default; turn it on to snap by itself when the card is steady (the phone remembers the choice).
+3. Pages are turned **90° clockwise** by default (cards are shot on their side), so Drive gets an upright landscape page. Change it in Menu → Scanner settings → Rotate pages.
+4. Every page is stored on the phone first (IndexedDB) and uploads by itself, one at a time, with retries. It survives **Done**, the next scan, a reload, closing the tab and losing signal. The bar under the camera says **All saved ✓** or **N still uploading**. **Pending uploads** (start screen, scan screen, Menu) lists every page: Waiting, Uploading, Saved, Saved but the card reads another JO, or Failed (with Retry / Remove). Saved pages clear from the list after 12 hours.
+5. Tap **Done**, then type the next JO number. No need to wait for uploads.
+
+The ☰ Menu is the same back-office menu as oypjewelry.com (from its `nav.js`). Open the scanner from the back-office menu once so it knows which menu to show.
 
 Tip: add the page to the Home Screen from Safari's Share menu so it opens full-screen.
 
 ## Notes
 - OCR works by importing the image as a temporary Google Doc with OCR, reading the text, and trashing the doc. It is free within normal Apps Script quotas (roughly 90 minutes of run time per day on a free account; each page takes 3 to 8 seconds, so about 600 or more pages a day). Scanning 2,000 cards may take a few days, or the OCR step can be skipped.
-- Shooting the same page again replaces the earlier file with the same name.
+- Shooting the same page again replaces the earlier file with the same name, so an upload retry never makes a duplicate file.
+- Pages are downscaled to 1600 px (long edge, JPEG 0.8) before upload.
 - Edge detection is a lightweight on-device brightness/contour check with no libraries, and it works best with a light card on a dark background.
 
 ## Voice input
