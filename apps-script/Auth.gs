@@ -28,6 +28,7 @@ function handleAction_(req) {
   if (a === 'logout') { revokeToken_(req.session, 'logout'); audit_(s.user.username, 'logout', '', req.device_id, ''); return { ok: true }; }
   if (a === 'dashboard' && typeof dashboard_ === 'function') return dashboard_(req, s.user); // Dashboard.gs
   if (typeof isJobAction_ === 'function' && isJobAction_(a)) return handleJob_(req, s.user); // JobSync.gs
+  if (typeof isPeopleAction_ === 'function' && isPeopleAction_(a)) return handlePeople_(req, s.user); // People.gs
   if (typeof isCostAction_ === 'function' && isCostAction_(a)) return handleCost_(req, s.user); // Costing.gs
   var adminOnly = { listUsers: listUsers_, createUser: createUser_, resetCode: resetCode_, unlockUser: unlockUser_, setActive: setActive_ };
   if (adminOnly[a]) {

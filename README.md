@@ -89,3 +89,11 @@ duplicate and only fill blank cells (overwrite needs `overwrite:true`). Until se
 4. **Deploy → Manage deployments → Edit → New version → Deploy.**
 Rates can be edited in the Rates tab (column `rate`). Markup rows (category `markup`) are only ever sent to executives (Script Property `EXEC_ROLES`, default `admin`).
 Saved quotes are status `draft`; customers only ever see quotes marked `sent` or `accepted`.
+
+## Customers page = clients + portal (People.gs)
+1. Apps Script → **+ → Script** → name it `People` → paste `apps-script/People.gs` → Save. (Needs JobSync.gs and Customers.gs.)
+2. In **Auth.gs**, right under the `// JobSync.gs` line in `handleAction_`, add:
+   `if (typeof isPeopleAction_ === 'function' && isPeopleAction_(a)) return handlePeople_(req, s.user); // People.gs`
+3. **Deploy → Manage deployments → Edit → New version → Deploy.** Nothing to run: no tabs are added or changed.
+The back-office Customers page then lists every client (Clients tab, walk-ins included) with a Portal tag when a website account
+(Customers tab) is linked by `client_id`; unmatched sign-ups show too. Admin only. Before this paste the page shows the old portal-only list.

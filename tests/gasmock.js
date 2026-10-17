@@ -39,7 +39,7 @@ module.exports = function load() {
     DriveApp: { getRootFolder() { return mkFolder('root'); }, getFileById: id => ({ setTrashed() {}, getThumbnail: () => ({ getContentType: () => 'image/png', getBytes: () => Buffer.from('img:' + id) }), getBlob: () => ({ getContentType: () => 'image/jpeg', getBytes: () => Buffer.from('full:' + id) }) }) },
   };
   vm.createContext(ctx);
-  for (const f of ['Code.gs', 'Auth.gs', 'Customers.gs', 'Dashboard.gs', 'JobSync.gs', 'Costing.gs'].filter(f => fs.existsSync(__dirname + '/../apps-script/' + f))) vm.runInContext(fs.readFileSync(__dirname + '/../apps-script/' + f, 'utf8'), ctx);
+  for (const f of ['Code.gs', 'Auth.gs', 'Customers.gs', 'Dashboard.gs', 'JobSync.gs', 'Costing.gs', 'People.gs'].filter(f => fs.existsSync(__dirname + '/../apps-script/' + f))) vm.runInContext(fs.readFileSync(__dirname + '/../apps-script/' + f, 'utf8'), ctx);
   ctx.call = req => JSON.parse(ctx.doPost({ postData: { contents: JSON.stringify(req) } }).text);
   ctx._ = { folders, ocrQueue, mail: ctx.MailApp.sent, props, cache, sheets, advance: ms => { clock += ms; } };
   return ctx;
