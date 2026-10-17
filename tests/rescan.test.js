@@ -74,7 +74,7 @@ ok(v.pages_set === j.pages_set && v.history.length === j.history.length && JSON.
 const g2 = load(); g2._.props.SEED_USERS = 'miriam:admin:3816'; g2.setupAuth();
 const sh = g2.SpreadsheetApp.openById().insertSheet('OcrLog'); sh.appendRow(['scan_id', 'jo', 'page', 'file_id', 'ocr_text', 'jo_found', 'match', 'ocr_error', 'parsed_json', 'review_state', 'reviewed_by', 'reviewed_at', 'created_at', 'created_by']);
 sh.appendRow(['scan-old', '26-009', 1, 'file-old', '', '', '', '', '{}', 'draft', '', '', '2026-09-01', 'scanner']);
-g2.setupJobs(); ok(g2._.sheets.OcrLog.data[0].slice(-2).join() === 'file_name,scan_set' && g2._.sheets.OcrLog.data[1][0] === 'scan-old', 'setupJobs adds file_name + scan_set to an old OcrLog (rows untouched)');
+g2.setupJobs(); ok(g2._.sheets.OcrLog.data[0].slice(-3).join() === 'file_name,scan_set,jo_version' && g2._.sheets.OcrLog.data[1][0] === 'scan-old', 'setupJobs adds file_name + scan_set to an old OcrLog (rows untouched)');
 // before setupJobs (no scan_set column): old behaviour, nothing breaks
 const g3 = load(); g3._.props.SEED_USERS = 'miriam:admin:3816'; g3.setupAuth(); g3.setupJobs();
 g3._.sheets.OcrLog.data[0] = g3._.sheets.OcrLog.data[0].slice(0, 14);

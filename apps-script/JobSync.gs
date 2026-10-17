@@ -30,10 +30,10 @@ var JOB_TABS = {
   JobStages: ['stage_id', 'jo', 'seq', 'stage_code', 'status', 'started_at', 'ended_at', 'assignee', 'created_at', 'created_by', 'updated_at', 'updated_by'],
   Clients: ['client_id', 'name', 'aliases', 'phone', 'email', 'billing_info', 'notes', 'portal_code', 'created_at', 'created_by', 'updated_at', 'updated_by'],
   OcrLog: ['scan_id', 'jo', 'page', 'file_id', 'ocr_text', 'jo_found', 'match', 'ocr_error', 'parsed_json', 'review_state',
-    'reviewed_by', 'reviewed_at', 'created_at', 'created_by', 'file_name', 'scan_set']
+    'reviewed_by', 'reviewed_at', 'created_at', 'created_by', 'file_name', 'scan_set', 'jo_version']
 };
 var JOB_SCAN_FIELDS = ['type', 'parent_jo', 'root_jo', 'client_id', 'drive_folder_id']; // the only JobOrders cells a scan may fill
-var JOB_ADD_COLS = { JobOrders: ['location', 'item_type', 'stone_type', 'stone_size', 'grade', 'material', 'weight_g'], OcrLog: ['file_name', 'scan_set'] }; // new columns setupJobs may add (header only) to a tab made before this version
+var JOB_ADD_COLS = { JobOrders: ['location', 'item_type', 'stone_type', 'stone_size', 'grade', 'material', 'weight_g'], OcrLog: ['file_name', 'scan_set', 'jo_version'] }; // new columns setupJobs may add (header only) to a tab made before this version
 var JOB_OCR_MAX = 45000; // a Sheet cell holds 50,000 characters
 
 /** ONE-TIME SETUP: select setupJobs and click Run. Adds missing tabs only; never changes a tab that exists. */
@@ -58,19 +58,20 @@ function setupJobs() {
 function recordScan_(req, jo, file, folder, ocrText, found, ocrError) {
   try {
     return withLock_(function () {
-      var key = jobKey_(req.jo) || jobKey_(jo), by = 'scanner', t = now_(), out = { ok: true, jo: key, created: false, filled: [], kept: [] };
+      var key = jobKey_(req.jo) || jobKey_(jo), ver = jobVersion_(req.jo), by = 'scanner', t = now_(), out = { ok: true, jo: key, created: false, filled: [], kept: [] };
       if (!key) return { ok: false, error: 'no JO number' };
       if (!jobTabsReady_()) return { ok: false, error: 'run setupJobs first' };
       var page = Number(req.page) || 1, fileId = file && file.getId ? file.getId() : '', folderId = folder && folder.getId ? folder.getId() : '';
       var parsed = jobParse_(ocrText), fileName = String((file && file.getName ? file.getName() : '') || req.filename || ''), set = jobScanSet_(fileName);
       var hasSet = jobHeader_(ss_().getSheetByName('OcrLog')).indexOf('scan_set') >= 0; // after setupJobs adds the column (else: the old rule)
+      ver = jobVersion_(fileName.replace(/-p\d+.*$/, '')) || ver; // 26-287B-p1-101726.jpg -> B
 
       // 1. OcrLog (always a new row; older drafts of the same page IN THE SAME SET become "replaced"; earlier sets stay as history)
       jobRows_('OcrLog').forEach(function (r) {
-        if (jobKey_(r.jo) === key && Number(r.page) === page && r.review_state === 'draft' && (!hasSet || String(r.scan_set || '') === set)) jobSet_('OcrLog', r._row, { review_state: 'replaced' });
+        if (jobKey_(r.jo) === key && Number(r.page) === page && r.review_state === 'draft' && (!hasSet || (String(r.scan_set || '') === set && jobRowVersion_(r) === ver))) jobSet_('OcrLog', r._row, { review_state: 'replaced' });
       });
       out.scan_id = 'scan-' + randHex_(8);
-      jobAppend_('OcrLog', { scan_id: out.scan_id, jo: key, page: page, file_id: fileId, ocr_text: String(ocrText || '').slice(0, JOB_OCR_MAX),
+      jobAppend_('OcrLog', { scan_id: out.scan_id, jo: key, jo_version: ver, page: page, file_id: fileId, ocr_text: String(ocrText || '').slice(0, JOB_OCR_MAX),
         jo_found: (found || []).join(', '), match: (found || []).indexOf(key) >= 0, ocr_error: ocrError || '', parsed_json: JSON.stringify(parsed),
         review_state: 'draft', created_at: t, created_by: by, file_name: fileName, scan_set: set });
 
@@ -78,8 +79,9 @@ function recordScan_(req, jo, file, folder, ocrText, found, ocrError) {
       var client = jobClient_(req, by, t); if (client.note) out.client_note = client.note;
 
       // 3. JobOrders: add once, then fill blanks only
-      var rev = key.match(/^(\d{2}-\d{3,4})([A-Z])$/), type = rev ? 'revision' : (req.type === 'repair' || req.type === 'new' ? req.type : '');
-      var want = { type: type, parent_jo: rev ? rev[1] : '', root_jo: rev ? rev[1] : '', client_id: client.id || '', drive_folder_id: folderId };
+      // a letter (26-287B) is a newer version of the SAME JO: one JobOrders row per JO number, never a separate "revision" JO
+      var type = req.type === 'repair' || req.type === 'new' ? req.type : '';
+      var want = { type: type, parent_jo: '', root_jo: '', client_id: client.id || '', drive_folder_id: folderId };
       var row = jobRows_('JobOrders').filter(function (r) { return jobKey_(r.jo) === key; });
       if (row.length > 1) out.warning = row.length + ' JobOrders rows for ' + key + '; only the first is used';
       if (!row.length) {
@@ -120,9 +122,30 @@ function recordScan_(req, jo, file, folder, ocrText, found, ocrError) {
 }
 
 /* ---------- helpers (header-based, so a tab with columns in another order still works) ---------- */
-function jobKey_(s) { // same rules as the scanner: '26-001', 'JO 26-005b' -> '26-005B'
+/* JO numbers. A letter after the number is a newer VERSION of the same JO (26-287A, then 26-287B; B is the latest):
+ * jobKey_ gives the JO itself ('26-287B' -> '26-287'), jobVersion_ the letter ('B'; '' for the original). */
+function jobKey_(s) { // same rules as the scanner: '26-001', 'JO 26-005b' -> '26-005'
   var m = String(s || '').toUpperCase().match(/(\d{2})\s*[-,.\/ ]?\s*(\d{3,4})(?:\s?([A-Z])(?![A-Z0-9]))?/);
-  return m ? m[1] + '-' + m[2] + (m[3] || '') : '';
+  return m ? m[1] + '-' + m[2] : '';
+}
+function jobVersion_(s) { var m = String(s || '').toUpperCase().match(/(\d{2})\s*[-,.\/ ]?\s*(\d{3,4})(?:\s?([A-Z])(?![A-Z0-9]))?/); return m && m[3] ? m[3] : ''; }
+function jobRowVersion_(r) { return String(r.jo_version || '').toUpperCase() || jobVersion_(r.jo) || jobVersion_(String(r.file_name || '').replace(/-p\d+.*$/, '')); }
+/** JobOrders rows of one JO (26-287, 26-287A, 26-287B) shown as ONE row, read-only: the latest version's row (highest letter)
+ *  with blanks filled from the others; jo = the JO number, version = latest letter, versions = all of them. Writes go to that row (_row). */
+function jobMergeVersions_(rows) {
+  var groups = {}, order = [], out = [];
+  rows.forEach(function (r) { var k = jobKey_(r.jo); if (!k) { out.push({ r: r }); return; } if (!groups[k]) { groups[k] = []; order.push(k); out.push({ k: k }); } groups[k].push(r); });
+  return out.map(function (x) {
+    if (!x.k) return x.r;
+    var g = groups[x.k].slice().sort(function (a, b) { return jobVersion_(b.jo) < jobVersion_(a.jo) ? -1 : jobVersion_(b.jo) > jobVersion_(a.jo) ? 1 : 0; });
+    if (g.length === 1 && !jobVersion_(g[0].jo)) return g[0];
+    var m = {}; Object.keys(g[0]).forEach(function (k) { m[k] = g[0][k]; });
+    g.slice(1).forEach(function (r) { Object.keys(r).forEach(function (k) { if (k !== '_row' && (m[k] === '' || m[k] == null) && r[k] !== '' && r[k] != null) m[k] = r[k]; }); });
+    m.jo = x.k; m.version = jobVersion_(g[0].jo); m.versions = g.map(function (r) { return jobVersion_(r.jo); }); m._rows = g.map(function (r) { return r._row; });
+    if (jobKey_(m.parent_jo) === x.k) { m.parent_jo = ''; if (m.type === 'revision') m.type = ''; } // "revision of itself" from the old rule
+    if (jobKey_(m.root_jo) === x.k) m.root_jo = '';
+    return m;
+  });
 }
 function jobTabsReady_() { var ss = ss_(); return ['JobOrders', 'JobStages', 'OcrLog'].every(function (n) { return !!ss.getSheetByName(n); }); }
 function jobHeader_(sh) { return sh.getLastRow() ? sh.getDataRange().getValues()[0].map(function (x) { return String(x).trim(); }) : []; }
@@ -131,7 +154,7 @@ function jobRows_(name) {
   var sh = ss_().getSheetByName(name); if (!sh || sh.getLastRow() < 2) return [];
   var v = sh.getDataRange().getValues(), h = v[0].map(function (x) { return String(x).trim(); }), out = [];
   for (var i = 1; i < v.length; i++) { var o = { _row: i + 1 }; for (var j = 0; j < h.length; j++) if (h[j]) o[h[j]] = v[i][j]; out.push(o); }
-  return out;
+  return name === 'JobOrders' ? jobMergeVersions_(out) : out;
 }
 function jobAppend_(name, obj) {
   var sh = ss_().getSheetByName(name), h = jobHeader_(sh);
@@ -222,7 +245,7 @@ function jobView_(j, pages, clients, user) {
   var o = { jo: jobKey_(j.jo) }, cl = clients[String(j.client_id || '')];
   ['type', 'parent_jo', 'status', 'location', 'current_stage', 'description', 'metal', 'karat', 'size', 'item_type', 'stone_type', 'stone_size', 'grade',
     'material', 'weight_g', 'review_state', 'client_id'].forEach(function (k) { o[k] = jobStr_(j[k]); });
-  o.due_date = jobDay_(j.due_date); o.client = jobPublicClient_(cl, user); o.pages = pages || []; o.pages_set = (pages && pages.set) || ''; o.pages_date = (pages && pages.date) || ''; o.history = (pages && pages.history) || []; o.scanned_at = jobStr_(j.created_at);
+  o.due_date = jobDay_(j.due_date); o.client = jobPublicClient_(cl, user); o.pages = pages || []; o.pages_set = (pages && pages.set) || ''; o.pages_version = (pages && pages.version) || ''; o.version = String(j.version || ''); o.versions = j.versions || []; o.pages_date = (pages && pages.date) || ''; o.history = (pages && pages.history) || []; o.scanned_at = jobStr_(j.created_at);
   o.archived = o.location === 'archived'; o.on_hand = jobOnHand_(j);
   var it = jobItemTypes_().filter(function (t) { return t[0] === o.item_type; })[0];
   o.missing = JOB_NEEDED.concat(it ? it[2] : []).filter(function (k) { return k === 'client' ? !o.client : !o[k]; });
@@ -261,23 +284,26 @@ function jobScanSet_(name) { var m = String(name || '').match(/-p\d+-(\d{6}[a-z]
 function jobSetSort_(set) { return set ? '1' + set.slice(4, 6) + set.slice(0, 4) + (set.slice(6) || ' ') : '0'; } // MMDDYY[x] -> YYMMDD order; legacy first
 function jobSetDay_(set) { return set ? '20' + set.slice(4, 6) + '-' + set.slice(0, 2) + '-' + set.slice(2, 4) : ''; }
 /** jo -> pages of the LATEST scan set (array, as before) with .history = older sets, newest first:
- *  [{ set: '101726', date: '2026-10-17', n: 2, pages: [{ page, file_id, scan_id }] }]. Untagged older files are one set, shown last. */
+ *  [{ set: '101726', version: 'B', date: '2026-10-17', n: 2, pages: [{ page, file_id, scan_id, version }] }].
+ *  Order: highest version letter first (26-287B > 26-287A > 26-287), then newest date tag; untagged older files last within their version. */
 function jobPages_() {
   var sets = {}, firstAt = {};
   jobRows_('OcrLog').forEach(function (r) {
     if (r.review_state === 'replaced' || r.review_state === 'discarded' || r.review_state === 'deleted' || !r.file_id) return;
-    var k = jobKey_(r.jo), st = String(r.scan_set || '') || jobScanSet_(r.file_name), pg = Number(r.page) || 1;
+    var k = jobKey_(r.jo), v = jobRowVersion_(r), st = v + '|' + (String(r.scan_set || '') || jobScanSet_(r.file_name)), pg = Number(r.page) || 1;
     sets[k] = sets[k] || {}; sets[k][st] = sets[k][st] || {};
-    sets[k][st][pg] = { page: pg, file_id: String(r.file_id), scan_id: String(r.scan_id) };
+    sets[k][st][pg] = { page: pg, file_id: String(r.file_id), scan_id: String(r.scan_id), version: v };
     var fk = k + '|' + st; if (!firstAt[fk] && r.created_at) firstAt[fk] = r.created_at;
   });
   var out = {};
   Object.keys(sets).forEach(function (k) {
-    var L = Object.keys(sets[k]).sort(function (a, b) { var x = jobSetSort_(a), y = jobSetSort_(b); return x < y ? 1 : x > y ? -1 : 0; }).map(function (st) {
+    var sk = function (st) { var i = st.indexOf('|'); return (st.slice(0, i) || ' ') + jobSetSort_(st.slice(i + 1)); }; // ' ' sorts below 'A'
+    var L = Object.keys(sets[k]).sort(function (a, b) { var x = sk(a), y = sk(b); return x < y ? 1 : x > y ? -1 : 0; }).map(function (st) {
+      var i = st.indexOf('|'), set = st.slice(i + 1), ver = st.slice(0, i);
       var pgs = Object.keys(sets[k][st]).map(Number).sort(function (a, b) { return a - b; }).map(function (p) { return sets[k][st][p]; });
-      return { set: st, date: st ? jobSetDay_(st) : jobDay_(firstAt[k + '|' + st] || ''), n: pgs.length, pages: pgs };
+      return { set: set, version: ver, date: set ? jobSetDay_(set) : jobDay_(firstAt[k + '|' + st] || ''), n: pgs.length, pages: pgs };
     });
-    var latest = L[0].pages.slice(); latest.set = L[0].set; latest.date = L[0].date; latest.history = L.slice(1);
+    var latest = L[0].pages.slice(); latest.set = L[0].set; latest.version = L[0].version; latest.date = L[0].date; latest.history = L.slice(1);
     out[k] = latest;
   });
   return out;
@@ -427,6 +453,35 @@ function importExistingScans() {
   Logger.log('Done: ' + added + ' pages added from ' + seenJos + ' JO folders.');
   return { done: true, added: added };
 }
+
+/**
+ * OPTIONAL, owner-approved only: move page photos from old version folders ("Job Order Cards/26-287A", ".../26-287B")
+ * into the JO's own folder ("Job Order Cards/26-287"). File names are NOT changed (they keep the letter), file ids stay the same,
+ * so the Sheet and the back office need nothing else. Nothing is deleted; an emptied version folder is left in place.
+ *   mergeSuffixFolders()       DRY RUN (default): only logs what it would move. Changes nothing.
+ *   mergeSuffixFoldersApply()  really moves the files (creates the JO folder if it is missing).
+ * The back office already shows version folders under their JO without this.
+ */
+function mergeSuffixFolders(apply) {
+  apply = apply === true;
+  var root = DriveApp.getRootFolder().getFoldersByName(PARENT_FOLDER), plan = [], made = [];
+  if (!root.hasNext()) { Logger.log('No "' + PARENT_FOLDER + '" folder.'); return { apply: apply, moves: [] }; }
+  var cards = root.next(), it = cards.getFolders(), vers = [];
+  while (it.hasNext()) { var f = it.next(), n = String(f.getName()); if (jobKey_(n) && jobVersion_(n) && /^\s*\d{2}-\d{3,4}\s?[A-Z]\s*$/i.test(n)) vers.push(f); }
+  vers.forEach(function (f) {
+    var key = jobKey_(f.getName()), dest = cards.getFoldersByName(key), to = dest.hasNext() ? dest.next() : null, files = f.getFiles();
+    while (files.hasNext()) {
+      var x = files.next(); if (x.isTrashed && x.isTrashed()) continue;
+      plan.push(f.getName() + '/' + x.getName() + ' -> ' + key + '/' + x.getName());
+      if (apply) { if (!to) { to = cards.createFolder(key); made.push(key); } x.moveTo(to); }
+    }
+  });
+  Logger.log((apply ? 'MOVED ' : 'DRY RUN, would move ') + plan.length + ' file(s) from ' + vers.length + ' version folder(s):\n' + (plan.join('\n') || '(nothing)')
+    + (made.length ? '\nCreated JO folders: ' + made.join(', ') : '') + (apply ? '\nThe emptied version folders are left in place.' : '\nTo really move them, run mergeSuffixFoldersApply.'));
+  try { if (apply) audit_('setup', 'mergeSuffixFolders', '', '', plan.length + ' file(s) moved'); } catch (e) {}
+  return { apply: apply, folders: vers.length, moves: plan, created: made };
+}
+function mergeSuffixFoldersApply() { return mergeSuffixFolders(true); }
 
 /* ======================= pricing visibility (server-side) ======================= */
 /**

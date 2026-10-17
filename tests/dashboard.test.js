@@ -22,7 +22,7 @@ const col = k => a.board.find(c => c.key === k).cards.map(c => c.jo);
 ok(col('casting').includes('26-001') && col('casting').includes('26-006') && col('casting').includes('26-008'), 'bench/repair/casting -> Casting');
 ok(col('setting').includes('26-003') && col('polishing').includes('26-005') && col('qc').includes('26-002'), 'setting/polishing/qc mapped');
 ok(col('pickup').includes('26-009') && col('design').join() === '26-010,26-004', 'done -> Pickup; design+approval -> Design');
-ok(col('intake').includes('26-005B') && col('intake').includes('26-007'), 'revision letter kept; draft in intake');
+ok(col('intake').includes('26-012') && col('intake').includes('26-007'), 'intake column; draft in intake');
 const late = a.board.find(c => c.key === 'polishing').cards[0]; ok(late.late && late.client === 'Elena Tan', 'past-due card flagged, client name shown to admin');
 ok(!a.board.find(c => c.key === 'pickup').cards[0].late, 'done job waiting for pickup is not "late"');
 ok(a.counts.pending_breakdown.reviews === 1 && a.counts.pending_breakdown.past_due === 1 && a.counts.pending_breakdown.payments === 1 && a.counts.pending_work === 3, 'pending work = review + past due + pending payment');

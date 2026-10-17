@@ -13,14 +13,14 @@ function doPost(e) {
     var token = PropertiesService.getScriptProperties().getProperty('TOKEN');
     if (token && req.token !== token) return json_({ ok: false, error: 'Bad token' });
     if (req.op === 'deletePage') return json_(deletePage_(req)); // scanner swipe-delete (same TOKEN as uploads)
-    var jo = normJO_(req.jo);
+    var jo = normJO_(req.jo), full = joFull_(req.jo); // 26-287B: folder 26-287 (the JO), file name keeps the B (its version)
     if (!jo) return json_({ ok: false, error: 'Missing JO number' });
     if (!req.imageBase64) return json_({ ok: false, error: 'Missing image' });
     var lock = LockService.getScriptLock(); lock.waitLock(20000); // avoid duplicate folders + names on fast uploads
     var folder, filename, file, blob;
     try {
       folder = getOrCreate_(getOrCreate_(DriveApp.getRootFolder(), PARENT_FOLDER), jo);
-      filename = scanName_(folder, jo, req); // e.g. 26-001-p1-101726.jpg; a later session the same day gets ...-101726b.jpg
+      filename = scanName_(folder, full, req); // e.g. 26-001-p1-101726.jpg; a later session the same day gets ...-101726b.jpg
       blob = Utilities.newBlob(Utilities.base64Decode(req.imageBase64), 'image/jpeg', filename);
       var existing = folder.getFilesByName(filename);
       while (existing.hasNext()) existing.next().setTrashed(true); // re-crop / retake in the SAME session replaces its page; older scans are kept
@@ -33,7 +33,7 @@ function doPost(e) {
     var found = findJOs_(ocrText);
     var job = typeof recordScan_ === 'function' ? recordScan_(req, jo, file, folder, ocrText, found, ocrError) : null; // JobSync.gs
     return json_({ ok: true, filename: filename, fileId: file.getId(), fileUrl: file.getUrl(), folderUrl: folder.getUrl(), ocrText: ocrText,
-      joFound: found, match: found.indexOf(jo) !== -1, ocrError: ocrError });
+      joFound: found, match: found.some(function (x) { return normJO_(x) === jo; }), ocrError: ocrError });
   } catch (err) {
     return json_({ ok: false, error: String(err) });
   }
@@ -84,16 +84,17 @@ function deletePage_(req) {
   var root = DriveApp.getRootFolder().getFoldersByName(PARENT_FOLDER); if (!root.hasNext()) return { ok: true, deleted: 0 };
   var fit = root.next().getFoldersByName(jo); if (!fit.hasNext()) return { ok: true, deleted: 0 };
   var folder = fit.next(), base = safeName_(jo).replace(/[.\-]/g, '\\$&');
-  var pageRe = new RegExp('^' + base + '-p\\d+(?:-\\d{6}[a-z]?)?\\.jpe?g$', 'i'), targets = [];
+  var pageRe = new RegExp('^' + base + '[A-Z]?-p\\d+(?:-\\d{6}[a-z]?)?\\.jpe?g$', 'i'), targets = [];
   if (req.file_id) {
     var f; try { f = DriveApp.getFileById(String(req.file_id)); } catch (e) { return { ok: true, deleted: 0, note: 'not found' }; }
-    var inside = false, ps = f.getParents(); while (ps.hasNext()) if (ps.next().getId() === folder.getId()) inside = true;
+    // inside the JO folder, or an older version folder of the same JO (Job Order Cards/26-287A)
+    var inside = false, ps = f.getParents(); while (ps.hasNext()) { var pf = ps.next(); if (pf.getId() === folder.getId() || (normJO_(pf.getName()) === jo && joFull_(pf.getName()) !== jo && joParentOk_(pf))) inside = true; }
     if (!inside || !pageRe.test(f.getName()) || (req.filename && f.getName() !== safeName_(req.filename))) return { ok: false, error: 'Not a page of this JO', code: 'FORBIDDEN' };
     targets.push(f);
   } else {
     var session = String(req.scan || '').replace(/[^\w@.\-]/g, '').slice(0, 80), page = parseInt(req.page, 10);
     if (!session || !(page > 0)) return { ok: false, error: 'Missing file' };
-    var one = new RegExp('^' + base + '-p' + page + '-\\d{6}[a-z]?\\.jpe?g$', 'i'), it = folder.getFiles();
+    var one = new RegExp('^' + safeName_(joFull_(req.jo)).replace(/[.\-]/g, '\\$&') + '-p' + page + '-\\d{6}[a-z]?\\.jpe?g$', 'i'), it = folder.getFiles();
     while (it.hasNext()) {
       var x = it.next(); if (x.isTrashed && x.isTrashed()) continue;
       var d = ''; try { d = String(x.getDescription() || ''); } catch (e) {}
@@ -111,11 +112,18 @@ function getOrCreate_(parent, name) {
   return it.hasNext() ? it.next() : parent.createFolder(name);
 }
 
-/** '26-001', 'JO 26-001', 'JO# 26,001', '26 001' -> '26-001' */
+/** The JO itself: '26-001', 'JO 26-001', 'JO# 26,001', '26 001' -> '26-001'. A letter is a newer version of the SAME JO:
+ *  '26-287B' -> '26-287' (folder, Sheet, lookups). joFull_ keeps the letter ('26-287B', for file names), joVersion_ is the letter. */
 function normJO_(s) {
+  var m = String(s || '').toUpperCase().match(/(\d{2})\s*[-,.\/ ]?\s*(\d{3,4})(?:\s?([A-Z])(?![A-Z0-9]))?/);
+  return m ? m[1] + '-' + m[2] : String(s || '').trim().toUpperCase().replace(/^J\.?O\.?\s*#?\s*/, '');
+}
+function joFull_(s) {
   var m = String(s || '').toUpperCase().match(/(\d{2})\s*[-,.\/ ]?\s*(\d{3,4})(?:\s?([A-Z])(?![A-Z0-9]))?/);
   return m ? m[1] + '-' + m[2] + (m[3] || '') : String(s || '').trim().toUpperCase().replace(/^J\.?O\.?\s*#?\s*/, '');
 }
+function joVersion_(s) { var f = joFull_(s), j = normJO_(s); return f.length > j.length ? f.slice(j.length) : ''; }
+function joParentOk_(f) { try { var ps = f.getParents(); while (ps.hasNext()) if (ps.next().getName() === PARENT_FOLDER) return true; } catch (e) {} return false; }
 
 /** All JO-looking numbers in OCR text, normalised, unique. Prefers ones labelled JO. */
 function findJOs_(text) {

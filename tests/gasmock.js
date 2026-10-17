@@ -13,7 +13,7 @@ module.exports = function load() {
   const ss = { getSheetByName: n => sheets[n] || null, insertSheet: n => (sheets[n] = new Sheet(n)), getId: () => 'mock', getUrl: () => 'mock://sheet' };
   const folders = {};
   function mkFolder(name) { if (folders[name]) return folders[name]; const f = { name, id: 'fld-' + name, files: [], subs: {},
-    getId: () => 'fld-' + name, getUrl: () => 'mock://folder/' + name, getName: () => name.split('/').pop(),
+    getParents() { const pp = name.split('/').slice(0, -1).join('/'), pf = pp && folders[pp]; let used = !pf; return { hasNext: () => !used, next: () => { used = true; return pf; } }; }, getId: () => 'fld-' + name, getUrl: () => 'mock://folder/' + name, getName: () => name.split('/').pop(),
     getFolders() { const l = Object.values(this.subs); let i = 0; return { hasNext: () => i < l.length, next: () => l[i++] }; },
     getFiles() { const l = this.files.filter(x => !x.trashed); let i = 0; return { hasNext: () => i < l.length, next: () => l[i++] }; },
     getFoldersByName(n) { const s = this.subs[n]; let used = false; return { hasNext: () => !!s && !used, next: () => { used = true; return s; } }; },

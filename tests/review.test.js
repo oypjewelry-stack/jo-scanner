@@ -25,7 +25,7 @@ ok(C(st, 'jobReviewList').code === 'FORBIDDEN' && C(acc, 'jobReviewList').code =
 ok(C(st, 'jobReviewSave', { jo: '26-001', set: { location: 'vault' } }).code === 'FORBIDDEN' && tab('JobOrders')[0].location === '', 'staff cannot save');
 ok(C('', 'jobReviewList').code === 'NO_SESSION', 'signed out: no access');
 let L = C(adm, 'jobReviewList');
-ok(L.ok && L.jobs.map(j => j.jo).join() === '26-001,26-002,26-003,26-005B,26-006,26-007', 'admin list: all drafts, JO order');
+ok(L.ok && L.jobs.map(j => j.jo).join() === '26-001,26-002,26-003,26-005,26-006,26-007', 'admin list: all drafts, JO order');
 const j1 = L.jobs[0];
 ok(j1.pages.length === 2 && j1.missing.join() === 'location,item_type,client,due_date,type,description', 'pages + common missing fields flagged (no metal/karat until the kind is known)');
 ok(L.locations.length === 8 && L.locations[3][1] === 'Being worked on' && L.locations[7][1] === 'Archived', '8 locations offered (Archived last)');
@@ -72,7 +72,7 @@ ok(r.ok && tab('JobOrders').find(j => j.jo === '26-003').client_id === mc.client
 
 // bulk location
 r = C(adm, 'jobBulkLocation', { jos: ['26-003', '26-005B', '26-006', '26-002', '26-099'], location: 'vault' });
-ok(r.ok && r.set.join() === '26-003,26-005B,26-006' && r.kept[0].jo === '26-002' && r.kept[0].location === 'showroom' && r.missing[0] === '26-099', 'bulk: blanks set, Showroom kept, unknown reported');
+ok(r.ok && r.set.join() === '26-003,26-005,26-006' && r.kept[0].jo === '26-002' && r.kept[0].location === 'showroom' && r.missing[0] === '26-099', 'bulk: blanks set, Showroom kept, unknown reported');
 ok(tab('JobOrders').find(j => j.jo === '26-006').status === 'done', 'bulk vault -> status done');
 r = C(adm, 'jobBulkLocation', { jos: ['26-002'], location: 'vault', overwrite: true }); ok(r.set[0] === '26-002' && tab('JobOrders').find(j => j.jo === '26-002').location === 'vault', 'overwrite:true changes it');
 ok(tab('AuditLog').some(a => a.action === 'jobBulkLocation' && a.detail.includes('(overwrite)')), 'bulk logged, overwrite marked');

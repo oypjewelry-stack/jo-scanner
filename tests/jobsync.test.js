@@ -54,9 +54,9 @@ ok(jo.description === 'Coin necklace' && jo.status === 'active', 'overwrite neve
 ok(tab('AuditLog').some(a => a.action === 'jobOverwriteFromScan' && a.detail.includes('fld-manual')), 'overwrite logged with old value');
 
 // revision + repair
-scan('26-005b', 1); jo = tab('JobOrders').find(j => j.jo === '26-005B');
-ok(jo && jo.type === 'revision' && jo.parent_jo === '26-005' && jo.root_jo === '26-005', 'revision letter kept, parent/root set');
-ok(!tab('JobOrders').some(j => j.jo === '26-005'), 'parent JO not invented');
+scan('26-005b', 1); jo = tab('JobOrders').find(j => j.jo === '26-005');
+ok(jo && jo.type === '' && jo.parent_jo === '' && !tab('JobOrders').some(j => j.jo === '26-005B'), 'a version letter (26-005B) is the same JO: one row 26-005, no separate revision JO');
+ok(tab('OcrLog').filter(o => o.jo === '26-005').pop().jo_version === 'B', 'OcrLog keeps the JO number + version letter');
 scan('26-020', 1, { type: 'repair' }); jo = tab('JobOrders').find(j => j.jo === '26-020');
 ok(jo.type === 'repair' && jo.current_stage === 'receive_inspect' && tab('JobStages').find(s => s.jo === '26-020').stage_code === 'receive_inspect', 'repair starts at receive_inspect');
 

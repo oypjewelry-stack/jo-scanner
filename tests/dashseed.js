@@ -13,7 +13,7 @@ module.exports = function seedDash(g, opts = {}) {
     J('26-003', 'new', 'active', 'stone_setting', 'cl-c', 'Combi earrings', '14k white', day(3)),
     J('26-004', 'new', 'active', 'design', 'cl-d', 'Signet ring, family crest', '18k yellow', day(21)),
     J('26-005', 'new', 'active', 'final_polish', 'cl-e', 'Tennis bracelet', '14k white', day(-2)),
-    J('26-005B', 'revision', 'active', 'intake', 'cl-e', 'Bracelet clasp redo', '14k white', day(12)),
+    J('26-012', 'new', 'active', 'intake', 'cl-e', 'Bracelet clasp redo', '14k white', day(12)),
     J('26-006', 'repair', 'active', 'repair', 'cl-f', 'Chain clasp repair', '18k yellow', day(4)),
     J('26-007', 'new', 'draft', 'intake', 'cl-a', 'Pearl pendant', 'Silver 925', '', 'draft'),
     J('26-008', 'new', 'active', 'casting', 'cl-b', 'Wedding bands (pair)', 'Platinum', day(9)),

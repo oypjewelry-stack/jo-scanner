@@ -57,7 +57,7 @@ function readOpt_(name) { // read an existing tab WITHOUT creating it
   var sh = ss_().getSheetByName(name); if (!sh || sh.getLastRow() < 2) return [];
   var v = sh.getDataRange().getValues(), h = v[0].map(function (x) { return String(x).trim(); }), out = [];
   for (var i = 1; i < v.length; i++) { var o = {}; for (var j = 0; j < h.length; j++) o[h[j]] = v[i][j]; out.push(o); }
-  return out;
+  return name === 'JobOrders' && typeof jobMergeVersions_ === 'function' ? jobMergeVersions_(out) : out; // 26-287A/B = one JO 26-287 (JobSync.gs)
 }
 function normEmail_(e) { return String(e || '').trim().toLowerCase(); }
 function okEmail_(e) { return /^[^\s@]{1,64}@[^\s@]+\.[a-z]{2,}$/.test(e) && e.length <= 120; }
@@ -138,7 +138,7 @@ function autoMatch_(email, mob) {
   return { status: 'pending', note: byMob.length ? 'mobile matches ' + byMob.length + ' clients' : 'no match' };
 }
 function link_(cid, jo, method, by) {
-  var exists = rows_('CustomerLinks').some(function (l) { return l.customer_id === cid && String(l.jo) === jo && !l.unlinked_at; });
+  jo = normJO_(jo); var exists = rows_('CustomerLinks').some(function (l) { return l.customer_id === cid && normJO_(l.jo) === jo && !l.unlinked_at; });
   if (!exists) append_('CustomerLinks', { link_id: 'l-' + randHex_(8), customer_id: cid, jo: jo, method: method, linked_by: by, linked_at: now_() });
 }
 
@@ -214,16 +214,16 @@ function custReset_(req) {
 }
 
 /* ---------- customer data (only their own JOs) ---------- */
-function myJos_(cid) { return rows_('CustomerLinks').filter(function (l) { return l.customer_id === cid && !l.unlinked_at; }).map(function (l) { return String(l.jo); }); }
+function myJos_(cid) { return rows_('CustomerLinks').filter(function (l) { return l.customer_id === cid && !l.unlinked_at; }).map(function (l) { return normJO_(l.jo); }); } // a link to 26-287A = JO 26-287
 function custJobs_(c) {
-  var mine = myJos_(c.customer_id), jobs = readOpt_('JobOrders').filter(function (j) { return mine.indexOf(String(j.jo)) >= 0 && j.status !== 'cancelled'; });
+  var mine = myJos_(c.customer_id), jobs = readOpt_('JobOrders').filter(function (j) { return mine.indexOf(normJO_(j.jo)) >= 0 && j.status !== 'cancelled'; });
   var quotes = readOpt_('Quotes'), pays = readOpt_('Payments'), stages = readOpt_('JobStages');
   return { ok: true, customer: custPublic_(c), jobs: jobs.map(function (j) {
-    var jo = String(j.jo);
-    var q = quotes.filter(function (x) { return String(x.jo) === jo && (x.status === 'accepted' || x.status === 'sent'); })
+    var jo = normJO_(j.jo);
+    var q = quotes.filter(function (x) { return normJO_(x.jo) === jo && (x.status === 'accepted' || x.status === 'sent'); })
       .sort(function (a, b) { return (a.status === 'accepted' ? 1 : 0) - (b.status === 'accepted' ? 1 : 0) || Number(a.version) - Number(b.version); }).pop();
-    var paid = pays.filter(function (p) { return String(p.jo) === jo && p.status === 'confirmed'; }).reduce(function (s, p) { return s + Number(p.amount || 0); }, 0);
-    var st = stages.filter(function (s) { return String(s.jo) === jo && s.status !== 'skipped'; }).sort(function (a, b) { return a.seq - b.seq; })
+    var paid = pays.filter(function (p) { return normJO_(p.jo) === jo && p.status === 'confirmed'; }).reduce(function (s, p) { return s + Number(p.amount || 0); }, 0);
+    var st = stages.filter(function (s) { return normJO_(s.jo) === jo && s.status !== 'skipped'; }).sort(function (a, b) { return a.seq - b.seq; })
       .map(function (s) { return { label: STAGE_LABEL[s.stage_code] || String(s.stage_code).replace(/_/g, ' '), status: s.status }; });
     var total = q ? Number(q.amount || 0) : null;
     return { jo: jo, description: j.description || '', metal: j.metal || '', karat: j.karat || '', size: j.size || '', due_date: fmtDate_(j.due_date),
@@ -234,9 +234,9 @@ function custJobs_(c) {
 function fmtDate_(d) { if (!d) return ''; var x = new Date(d); return isNaN(x) ? String(d) : Utilities.formatDate(x, 'Asia/Manila', 'MMM d, yyyy'); }
 function thumb_(id) { var b = DriveApp.getFileById(id).getThumbnail() || DriveApp.getFileById(id).getBlob(); return 'data:' + b.getContentType() + ';base64,' + Utilities.base64Encode(b.getBytes()); }
 function custPhoto_(c, req) {
-  var jo = String(req.jo || '');
+  var jo = normJO_(req.jo || '');
   if (myJos_(c.customer_id).indexOf(jo) < 0) { audit_('cust:' + c.customer_id, 'denied', 'custPhoto', req.device_id, jo); return { ok: false, error: 'Not allowed', code: 'FORBIDDEN' }; }
-  var j = readOpt_('JobOrders').filter(function (x) { return String(x.jo) === jo; })[0];
+  var j = readOpt_('JobOrders').filter(function (x) { return normJO_(x.jo) === jo; })[0];
   if (!j || !j.product_photo_file_id) return { ok: true, src: '' };
   try { return { ok: true, src: thumb_(String(j.product_photo_file_id)) }; } catch (e) { return { ok: true, src: '' }; }
 }
@@ -279,12 +279,12 @@ function admCustUpdate_(req, u) { return admWrap_(function () {
 }); }
 function admCustLink_(req, u) { return admWrap_(function () {
   var c = needCust_(req), jo = normJO_(req.jo);
-  if (!readOpt_('JobOrders').some(function (j) { return String(j.jo) === jo; })) throw new Error('No JO ' + jo + ' in JobOrders');
+  if (!readOpt_('JobOrders').some(function (j) { return normJO_(j.jo) === jo; })) throw new Error('No JO ' + jo + ' in JobOrders');
   link_(c.customer_id, jo, 'admin', u.username); audit_(u.username, 'cust_link', c.customer_id, req.device_id, jo); return { ok: true };
 }); }
 function admCustUnlink_(req, u) { return admWrap_(function () {
-  var c = needCust_(req), jo = String(req.jo || '');
-  rows_('CustomerLinks').forEach(function (l) { if (l.customer_id === c.customer_id && String(l.jo) === jo && !l.unlinked_at) update_('CustomerLinks', l._row, { unlinked_at: now_(), unlinked_by: u.username }); });
+  var c = needCust_(req), jo = normJO_(req.jo || '');
+  rows_('CustomerLinks').forEach(function (l) { if (l.customer_id === c.customer_id && normJO_(l.jo) === jo && !l.unlinked_at) update_('CustomerLinks', l._row, { unlinked_at: now_(), unlinked_by: u.username }); });
   audit_(u.username, 'cust_unlink', c.customer_id, req.device_id, jo); return { ok: true };
 }); }
 function admCustApprove_(req, u) { return admWrap_(function () {

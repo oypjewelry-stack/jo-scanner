@@ -164,6 +164,7 @@ function dashRead_(name, missing) { // like readOpt_, but notes which tabs are a
     if (v[i].every(function (x) { return x === '' || x === null; })) continue;
     var o = {}; for (var j = 0; j < h.length; j++) if (h[j]) o[h[j]] = v[i][j]; out.push(o);
   }
+  if (name === 'JobOrders' && typeof jobMergeVersions_ === 'function') out = jobMergeVersions_(out); // 26-287A/B = one JO 26-287 (JobSync.gs)
   return out;
 }
 function dashDay_(d) { // any date-ish value -> 'yyyy-MM-dd' in Manila time, or ''
