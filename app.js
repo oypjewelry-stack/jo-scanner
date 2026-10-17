@@ -375,6 +375,13 @@ function renderOut(src, quad, enh, maxPx) {
   if (enh && cv && cv.Mat) { try { const m = cv.imread(out), e = CardDetector.enhance(cv, m); cv.imshow(out, e); m.delete(); e.delete(); } catch (err) { console.warn(err); } }
   return rotateCanvas(out); // upright before compression, thumbnail, queue and upload (so Drive + OCR get the upright page)
 }
+// Drive name: <JO>-p<page>-<MMDDYY>.jpg, Manila date the page was shot. The server keeps every earlier scan and adds b, c… for a
+// second session the same day; a re-crop in this session sends the same name + session id, so it replaces only its own page.
+function dateTag(d) {
+  const m = new Date((d ? d.getTime() : Date.now()) + 8 * 36e5).toISOString(); // Asia/Manila (UTC+8, no DST)
+  return m.slice(5, 7) + m.slice(8, 10) + m.slice(2, 4);
+}
+function pageName(jo, page, d) { return `${jo}-p${page}-${dateTag(d)}.jpg`; }
 function savePage(src, quad, replace) {
   const enh = enhanceOn(), out = renderOut(src, quad, enh, MAX_PX);
   const image = out.toDataURL('image/jpeg', QUALITY);
@@ -383,7 +390,7 @@ function savePage(src, quad, replace) {
   const thumb = th.toDataURL('image/jpeg', 0.6); out.width = out.height = 0;
   let p;
   if (replace) p = { jo: replace.jo, page: replace.page, filename: replace.filename, scan: replace.scan }; // re-crop: same file name, replaces it
-  else { state.page++; updatePageLabel(); p = { jo: state.jo, page: state.page, filename: `${state.jo}-p${state.page}.jpg`, scan: state.scan }; }
+  else { state.page++; updatePageLabel(); p = { jo: state.jo, page: state.page, filename: pageName(state.jo, state.page), scan: state.scan }; }
   p.thumb = thumb;
   queue.add(Object.assign({ image }, p)).catch(e => { console.error(e); note('Could not store the page on this phone: ' + (e.message || e)); });
   return p;
@@ -427,7 +434,7 @@ async function sendPage(it) {
   try {
     res = await fetch(api(), { method: 'POST', redirect: 'follow', signal: ctl && ctl.signal,
       headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // simple request: no CORS preflight
-      body: JSON.stringify({ token: localStorage.getItem(LS.token) || '', jo: it.jo, page: it.page, filename: it.filename, imageBase64: it.image.split(',')[1] }) });
+      body: JSON.stringify({ token: localStorage.getItem(LS.token) || '', jo: it.jo, page: it.page, filename: it.filename, scan: it.scan || '', imageBase64: it.image.split(',')[1] }) });
   } catch (e) {
     const er = new Error(e && e.name === 'AbortError' ? 'timed out' : 'no connection'); er.offline = navigator.onLine === false; throw er;
   } finally { clearTimeout(to); }

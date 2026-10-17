@@ -19,7 +19,7 @@ module.exports = function load() {
     getFoldersByName(n) { const s = this.subs[n]; let used = false; return { hasNext: () => !!s && !used, next: () => { used = true; return s; } }; },
     createFolder(n) { return (this.subs[n] = mkFolder(name + '/' + n)); },
     getFilesByName(n) { const l = this.files.filter(x => x.name === n && !x.trashed); let i = 0; return { hasNext: () => i < l.length, next: () => l[i++] }; },
-    createFile(b) { const x = { name: b.name, trashed: false, id: 'file-' + (++fileSeq), getId() { return this.id; }, getName() { return this.name; }, isTrashed() { return this.trashed; }, getUrl() { return 'mock://file/' + this.id; }, setTrashed(v) { this.trashed = v; } }; this.files.push(x); return x; } };
+    createFile(b) { const x = { name: b.name, trashed: false, id: 'file-' + (++fileSeq), getId() { return this.id; }, getName() { return this.name; }, isTrashed() { return this.trashed; }, getUrl() { return 'mock://file/' + this.id; }, setTrashed(v) { this.trashed = v; }, description: '', setDescription(d) { this.description = String(d); return this; }, getDescription() { return this.description; } }; this.files.push(x); return x; } };
     return (folders[name] = f); }
   let fileSeq = 0; const ocrQueue = [];
   const ctx = {
@@ -29,7 +29,7 @@ module.exports = function load() {
     SpreadsheetApp: { openById: () => ss, create: () => ss },
     LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
     Utilities: { DigestAlgorithm: { SHA_256: 1 }, Charset: { UTF_8: 1 }, getUuid: () => crypto.randomUUID(),
-      base64Encode: b => Buffer.from(b).toString('base64'), base64Decode: s => Buffer.from(s, 'base64'), newBlob: (bytes, type, name) => ({ name, type }), formatDate: d => d.toISOString().slice(0, 10),
+      base64Encode: b => Buffer.from(b).toString('base64'), base64Decode: s => Buffer.from(s, 'base64'), newBlob: (bytes, type, name) => ({ name, type }), formatDate: (d, tz, fmt) => { if (fmt !== 'MMddyy') return d.toISOString().slice(0, 10); const m = new Date(d.getTime() + (tz === 'Asia/Manila' ? 8 * 36e5 : 0)).toISOString(); return m.slice(5, 7) + m.slice(8, 10) + m.slice(2, 4); },
       computeDigest: (_, s) => Array.from(crypto.createHash('sha256').update(s, 'utf8').digest()).map(b => b > 127 ? b - 256 : b) },
     ContentService: { MimeType: { JSON: 1 }, createTextOutput: t => ({ setMimeType: () => ({ text: t }) }) },
     Logger: { log() {} },

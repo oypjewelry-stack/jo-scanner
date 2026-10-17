@@ -9,7 +9,7 @@ const KEEP_SAVED_MS = 12 * 3600e3, KEEP_SAVED_MAX = 60, MAX_TRIES = 6;
 // backoff: 3s, 10s, 30s, 1m, 2m, then give up as Failed (Retry is always offered)
 const BACKOFF = [3e3, 10e3, 30e3, 60e3, 120e3];
 const backoff = tries => BACKOFF[Math.min(tries - 1, BACKOFF.length - 1)];
-const keyOf = (jo, filename) => jo + '|' + filename;
+const keyOf = (jo, filename, scan) => jo + '|' + filename + (scan ? '|' + scan : ''); // one entry per page per session: a re-crop replaces it, a later session never does
 
 /* ---------- storage ---------- */
 function memoryStore() {
@@ -70,7 +70,7 @@ function create(opts) {
   // add a page; a re-shoot of the same JO page replaces the earlier entry (same Drive file name)
   async function add(p) {
     await load();
-    const id = keyOf(p.jo, p.filename), old = items.get(id);
+    const id = keyOf(p.jo, p.filename, p.scan), old = items.get(id);
     const it = { id, jo: p.jo, page: p.page, filename: p.filename, scan: p.scan || '', image: p.image, thumb: p.thumb || '',
       state: 'waiting', tries: 0, nextAt: 0, error: '', found: [], createdAt: now(), seq: ++seq, rev: ((old && old.rev) || 0) + 1, savedAt: 0 };
     await save(it); emit(); kick(); return it;

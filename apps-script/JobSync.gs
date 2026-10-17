@@ -7,7 +7,8 @@
  *   var job = typeof recordScan_ === 'function' ? recordScan_(req, jo, file, folder, ocrText, found, ocrError) : null; // JobSync.gs
  *
  * Per scanned page:
- *   - OcrLog: one new row (the OCR text is kept, review_state=draft). An earlier DRAFT row for the same JO+page is marked "replaced".
+ *   - OcrLog: one new row (the OCR text is kept, review_state=draft). An earlier DRAFT row for the same JO+page IN THE SAME SCAN SET
+ *     (same session: same date tag + letter in the file name, e.g. 26-001-p1-101726b.jpg) is marked "replaced". Other sets are kept as history.
  *   - JobOrders: first scan of a JO adds a row (status=draft, review_state=draft, stage intake). A re-scan never adds a second row
  *     and never changes a filled-in cell; it only fills blanks. Changing a filled cell needs overwrite:true in the request.
  *     status, current_stage, review_state, due_date, description etc. are never touched by a re-scan.
@@ -29,10 +30,10 @@ var JOB_TABS = {
   JobStages: ['stage_id', 'jo', 'seq', 'stage_code', 'status', 'started_at', 'ended_at', 'assignee', 'created_at', 'created_by', 'updated_at', 'updated_by'],
   Clients: ['client_id', 'name', 'aliases', 'phone', 'email', 'billing_info', 'notes', 'portal_code', 'created_at', 'created_by', 'updated_at', 'updated_by'],
   OcrLog: ['scan_id', 'jo', 'page', 'file_id', 'ocr_text', 'jo_found', 'match', 'ocr_error', 'parsed_json', 'review_state',
-    'reviewed_by', 'reviewed_at', 'created_at', 'created_by']
+    'reviewed_by', 'reviewed_at', 'created_at', 'created_by', 'file_name', 'scan_set']
 };
 var JOB_SCAN_FIELDS = ['type', 'parent_jo', 'root_jo', 'client_id', 'drive_folder_id']; // the only JobOrders cells a scan may fill
-var JOB_ADD_COLS = { JobOrders: ['location', 'item_type', 'stone_type', 'stone_size', 'grade', 'material', 'weight_g'] }; // new columns setupJobs may add (header only) to a JobOrders tab made before this version
+var JOB_ADD_COLS = { JobOrders: ['location', 'item_type', 'stone_type', 'stone_size', 'grade', 'material', 'weight_g'], OcrLog: ['file_name', 'scan_set'] }; // new columns setupJobs may add (header only) to a tab made before this version
 var JOB_OCR_MAX = 45000; // a Sheet cell holds 50,000 characters
 
 /** ONE-TIME SETUP: select setupJobs and click Run. Adds missing tabs only; never changes a tab that exists. */
@@ -61,16 +62,17 @@ function recordScan_(req, jo, file, folder, ocrText, found, ocrError) {
       if (!key) return { ok: false, error: 'no JO number' };
       if (!jobTabsReady_()) return { ok: false, error: 'run setupJobs first' };
       var page = Number(req.page) || 1, fileId = file && file.getId ? file.getId() : '', folderId = folder && folder.getId ? folder.getId() : '';
-      var parsed = jobParse_(ocrText);
+      var parsed = jobParse_(ocrText), fileName = String((file && file.getName ? file.getName() : '') || req.filename || ''), set = jobScanSet_(fileName);
+      var hasSet = jobHeader_(ss_().getSheetByName('OcrLog')).indexOf('scan_set') >= 0; // after setupJobs adds the column (else: the old rule)
 
-      // 1. OcrLog (always a new row; older drafts of the same page become "replaced")
+      // 1. OcrLog (always a new row; older drafts of the same page IN THE SAME SET become "replaced"; earlier sets stay as history)
       jobRows_('OcrLog').forEach(function (r) {
-        if (jobKey_(r.jo) === key && Number(r.page) === page && r.review_state === 'draft') jobSet_('OcrLog', r._row, { review_state: 'replaced' });
+        if (jobKey_(r.jo) === key && Number(r.page) === page && r.review_state === 'draft' && (!hasSet || String(r.scan_set || '') === set)) jobSet_('OcrLog', r._row, { review_state: 'replaced' });
       });
       out.scan_id = 'scan-' + randHex_(8);
       jobAppend_('OcrLog', { scan_id: out.scan_id, jo: key, page: page, file_id: fileId, ocr_text: String(ocrText || '').slice(0, JOB_OCR_MAX),
         jo_found: (found || []).join(', '), match: (found || []).indexOf(key) >= 0, ocr_error: ocrError || '', parsed_json: JSON.stringify(parsed),
-        review_state: 'draft', created_at: t, created_by: by });
+        review_state: 'draft', created_at: t, created_by: by, file_name: fileName, scan_set: set });
 
       // 2. Client (only if the scanner sent one)
       var client = jobClient_(req, by, t); if (client.note) out.client_note = client.note;
@@ -220,7 +222,7 @@ function jobView_(j, pages, clients, user) {
   var o = { jo: jobKey_(j.jo) }, cl = clients[String(j.client_id || '')];
   ['type', 'parent_jo', 'status', 'location', 'current_stage', 'description', 'metal', 'karat', 'size', 'item_type', 'stone_type', 'stone_size', 'grade',
     'material', 'weight_g', 'review_state', 'client_id'].forEach(function (k) { o[k] = jobStr_(j[k]); });
-  o.due_date = jobDay_(j.due_date); o.client = jobPublicClient_(cl, user); o.pages = pages || []; o.scanned_at = jobStr_(j.created_at);
+  o.due_date = jobDay_(j.due_date); o.client = jobPublicClient_(cl, user); o.pages = pages || []; o.pages_set = (pages && pages.set) || ''; o.pages_date = (pages && pages.date) || ''; o.history = (pages && pages.history) || []; o.scanned_at = jobStr_(j.created_at);
   o.archived = o.location === 'archived'; o.on_hand = jobOnHand_(j);
   var it = jobItemTypes_().filter(function (t) { return t[0] === o.item_type; })[0];
   o.missing = JOB_NEEDED.concat(it ? it[2] : []).filter(function (k) { return k === 'client' ? !o.client : !o[k]; });
@@ -242,14 +244,30 @@ function jobItemTypes_() { // built-in kinds + Settings item_types_extra (descri
   } catch (e) {}
   return (jobItemTypesCache_ = out);
 }
-function jobPages_() { // jo -> latest non-replaced scan per page
-  var by = {};
+/** Scan set of a file name: '26-001-p1-101726b.jpg' -> '101726b'; an older name without a date tag ('26-001-p1.jpg') -> '' (legacy, oldest). */
+function jobScanSet_(name) { var m = String(name || '').match(/-p\d+-(\d{6}[a-z]?)\.jpe?g$/i); return m ? m[1].toLowerCase() : ''; }
+function jobSetSort_(set) { return set ? '1' + set.slice(4, 6) + set.slice(0, 4) + (set.slice(6) || ' ') : '0'; } // MMDDYY[x] -> YYMMDD order; legacy first
+function jobSetDay_(set) { return set ? '20' + set.slice(4, 6) + '-' + set.slice(0, 2) + '-' + set.slice(2, 4) : ''; }
+/** jo -> pages of the LATEST scan set (array, as before) with .history = older sets, newest first:
+ *  [{ set: '101726', date: '2026-10-17', n: 2, pages: [{ page, file_id, scan_id }] }]. Untagged older files are one set, shown last. */
+function jobPages_() {
+  var sets = {}, firstAt = {};
   jobRows_('OcrLog').forEach(function (r) {
     if (r.review_state === 'replaced' || r.review_state === 'discarded' || !r.file_id) return;
-    var k = jobKey_(r.jo), pg = Number(r.page) || 1; by[k] = by[k] || {};
-    by[k][pg] = { page: pg, file_id: String(r.file_id), scan_id: String(r.scan_id) };
+    var k = jobKey_(r.jo), st = String(r.scan_set || '') || jobScanSet_(r.file_name), pg = Number(r.page) || 1;
+    sets[k] = sets[k] || {}; sets[k][st] = sets[k][st] || {};
+    sets[k][st][pg] = { page: pg, file_id: String(r.file_id), scan_id: String(r.scan_id) };
+    var fk = k + '|' + st; if (!firstAt[fk] && r.created_at) firstAt[fk] = r.created_at;
   });
-  var out = {}; Object.keys(by).forEach(function (k) { out[k] = Object.keys(by[k]).map(Number).sort(function (a, b) { return a - b; }).map(function (p) { return by[k][p]; }); });
+  var out = {};
+  Object.keys(sets).forEach(function (k) {
+    var L = Object.keys(sets[k]).sort(function (a, b) { var x = jobSetSort_(a), y = jobSetSort_(b); return x < y ? 1 : x > y ? -1 : 0; }).map(function (st) {
+      var pgs = Object.keys(sets[k][st]).map(Number).sort(function (a, b) { return a - b; }).map(function (p) { return sets[k][st][p]; });
+      return { set: st, date: st ? jobSetDay_(st) : jobDay_(firstAt[k + '|' + st] || ''), n: pgs.length, pages: pgs };
+    });
+    var latest = L[0].pages.slice(); latest.set = L[0].set; latest.date = L[0].date; latest.history = L.slice(1);
+    out[k] = latest;
+  });
   return out;
 }
 /** Draft JOs from scans (review_state draft, not cancelled), oldest JO number first. */
@@ -387,7 +405,7 @@ function importExistingScans() {
     var f = it.next(), jo = jobKey_(f.getName()); if (!jo) continue; seenJos++;
     var files = f.getFiles();
     while (files.hasNext()) {
-      var file = files.next(), name = file.getName(), m = name.match(/-p(\d+)\.jpe?g$/i);
+      var file = files.next(), name = file.getName(), m = name.match(/-p(\d+)(?:-\d{6}[a-z]?)?\.jpe?g$/i);
       if (logged[file.getId()] || (file.isTrashed && file.isTrashed())) continue;
       if (Date.now() - start > 270000) { Logger.log('Paused after ' + added + ' pages. Run importExistingScans again to continue.'); return { done: false, added: added }; }
       var r = recordScan_({ jo: f.getName(), page: m ? Number(m[1]) : 1, device_id: 'import' }, jo, file, f, '', [], 'imported (no OCR)');

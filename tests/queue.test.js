@@ -87,10 +87,10 @@ const netErr = () => { const e = new Error('Failed to fetch'); return e; };
   }
   { // 10. backend: retrying the same page replaces the Drive file (idempotent, no duplicates)
     const g = load(); const img = Buffer.from('jpeg').toString('base64');
-    for (let i = 0; i < 3; i++) g.call({ jo: '26-010', page: 1, filename: '26-010-p1.jpg', imageBase64: img });
+    const names = []; for (let i = 0; i < 3; i++) names.push(g.call({ jo: '26-010', page: 1, filename: '26-010-p1-101726.jpg', scan: '26-010@s1', imageBase64: img }).filename);
     const root = g.DriveApp.getRootFolder(); const cards = root.getFoldersByName('Job Order Cards').next(); const fld = cards.getFoldersByName('26-010').next();
-    let c = 0; const it = fld.getFilesByName('26-010-p1.jpg'); while (it.hasNext()) { it.next(); c++; }
-    ok(c === 1, 'backend: 3 uploads of the same page leave one Drive file');
+    let c = 0; const it = fld.getFiles(); while (it.hasNext()) { it.next(); c++; }
+    ok(c === 1 && names.every(x => x === '26-010-p1-101726.jpg'), 'backend: 3 uploads of the same page (same session) leave one Drive file');
   }
   console.log('queue tests passed:', n);
 })().catch(e => { console.error(e); process.exit(1); });
