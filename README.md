@@ -80,3 +80,12 @@ Email limit: Gmail allows about 100 automatic emails a day; the script caps itse
 Back office **To review** (admin + production manager): card photos (served by the script, Drive files stay private), location picker,
 quick edit, bulk "set location". Each uploaded page then adds an OcrLog row; the first scan of a JO adds a draft JobOrders row + its first stage. Re-scans never
 duplicate and only fill blank cells (overwrite needs `overwrite:true`). Until setupJobs is run, scans work exactly as before.
+
+## Cost estimator (Costing.gs)
+1. Apps Script → **+ → Script** → name it `Costing` → paste `apps-script/Costing.gs` → Save. (Needs JobSync.gs from the pricing update.)
+2. In **Auth.gs**, right under the `// JobSync.gs` line in `handleAction_`, add:
+   `if (typeof isCostAction_ === 'function' && isCostAction_(a)) return handleCost_(req, s.user); // Costing.gs`
+3. Pick `setupCosting` in the function menu → **Run** once. It adds the **Rates** and **Quotes** tabs (if missing) and fills Rates from the costing sheet. Running it again changes nothing.
+4. **Deploy → Manage deployments → Edit → New version → Deploy.**
+Rates can be edited in the Rates tab (column `rate`). Markup rows (category `markup`) are only ever sent to executives (Script Property `EXEC_ROLES`, default `admin`).
+Saved quotes are status `draft`; customers only ever see quotes marked `sent` or `accepted`.
