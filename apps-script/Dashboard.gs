@@ -23,7 +23,7 @@ var DASH = {
     ['pickup', 'Pickup', ['notify', 'pickup']]
   ],
   LOCATIONS: [['working', 'Being worked on'], ['queue', 'In queue'], ['pickup', 'For pickup'], ['vault', 'In vault'], ['showroom', 'Showroom'],
-    ['consigned', 'Consigned'], ['sold', 'Sold']],
+    ['consigned', 'Consigned'], ['sold', 'Sold'], ['archived', 'Archived']],
   OPEN_STATUSES: ['draft', 'active', 'done'] // done = finished, waiting for pickup; picked_up / cancelled are closed
 };
 // What each role may see. Sales + chart: executives only. Consignment: admin + PM, but agreed values (prices) only for executives
@@ -120,6 +120,7 @@ function dashboard_(req, user) {
     if (useLoc) {
       var loc = {}; DASH.LOCATIONS.forEach(function (l) { loc[l[0]] = 0; }); loc.unset = 0;
       allJobs.forEach(function (j) { if (!live(j)) return; var k = String(j.location || ''); if (k in loc && k !== 'unset') loc[k]++; else loc.unset++; });
+      out.counts.on_hand = Object.keys(loc).reduce(function (t, k) { return t + (k === 'unset' || k === 'sold' || k === 'archived' ? 0 : loc[k]); }, 0); // pieces we physically hold
       out.locations = DASH.LOCATIONS.map(function (l) { return { key: l[0], label: l[1], count: loc[l[0]] }; }).concat([{ key: 'unset', label: 'No location yet', count: loc.unset }]);
     }
     out.counts.overdue_consignments = outItems.filter(function (x) { return x.overdue; }).length;

@@ -28,7 +28,7 @@ let L = C(adm, 'jobReviewList');
 ok(L.ok && L.jobs.map(j => j.jo).join() === '26-001,26-002,26-003,26-005B,26-006,26-007', 'admin list: all drafts, JO order');
 const j1 = L.jobs[0];
 ok(j1.pages.length === 2 && j1.missing.join() === 'location,item_type,client,due_date,type,description', 'pages + common missing fields flagged (no metal/karat until the kind is known)');
-ok(L.locations.length === 7 && L.locations[3][1] === 'Being worked on', '7 locations offered');
+ok(L.locations.length === 8 && L.locations[3][1] === 'Being worked on' && L.locations[7][1] === 'Archived', '8 locations offered (Archived last)');
 ok(C(pm, 'jobReviewList').ok, 'PM can open the list');
 
 // photos: role-checked, only files tied to that JO
@@ -87,7 +87,7 @@ const loc = k => d.locations.find(l => l.key === k).count;
 ok(loc('vault') === 4 && loc('working') === 1 && loc('consigned') === 1 && loc('unset') === 0, 'location counts row (vault 4, working 1, consigned 1)');
 ok(d.counts.consigned_out === 1 && d.counts.consigned_jos === 1, 'Consigned JOs feed the consigned count');
 ok(d.counts.active_jobs === 1 && d.counts.pending_breakdown.reviews === 5, 'active = being worked on; reviews = drafts still unchecked');
-const dp = C(pm, 'dashboard'); ok(dp.locations && dp.locations.length === 8, 'PM sees location counts');
+const dp = C(pm, 'dashboard'); ok(dp.locations && dp.locations.length === 9, 'PM sees location counts');
 ok(!('locations' in C(acc, 'dashboard')) && !('locations' in C(st, 'dashboard')), 'accounting + staff: no location counts');
 // scans keep working, re-scan never touches the reviewed JO
 scan('26-001', 3); row = tab('JobOrders').find(j => j.jo === '26-001');

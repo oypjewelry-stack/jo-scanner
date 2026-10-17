@@ -169,8 +169,11 @@ function jobParse_(text) {
 
 /* ======================= back office: To review ======================= */
 var JOB_LOCATIONS = [['vault', 'In vault'], ['showroom', 'Showroom'], ['consigned', 'Consigned'], ['working', 'Being worked on'],
-  ['queue', 'In queue'], ['pickup', 'For pickup'], ['sold', 'Sold']];
-var JOB_LOC_STATUS = { working: 'active', queue: 'active', pickup: 'done', vault: 'done', showroom: 'done', consigned: 'done', sold: 'picked_up' };
+  ['queue', 'In queue'], ['pickup', 'For pickup'], ['sold', 'Sold'], ['archived', 'Archived']];
+var JOB_LOC_STATUS = { working: 'active', queue: 'active', pickup: 'done', vault: 'done', showroom: 'done', consigned: 'done', sold: 'picked_up', archived: 'done' };
+// Archived = the JO is on record but there is no physical piece. It stays searchable, never counts as stock and never shows on the job board.
+var JOB_NOT_ON_HAND = { sold: true, archived: true };
+function jobOnHand_(j) { var l = String(j.location || ''); return !!l && !JOB_NOT_ON_HAND[l]; }
 // What the piece is. Each kind lists the extra fields that apply to it (flagged when empty). To add a kind, add a line here,
 // or list extra labels in the Settings tab: key item_types_extra, value e.g. "Watch, Coin" (those show description only).
 var JOB_ITEM_TYPES = [
@@ -189,7 +192,7 @@ var JOB_ROLES = { admin: true, production_manager: true }; // everyone else: no 
 function isJobAction_(a) { return /^job[A-Z]/.test(String(a || '')); }
 function handleJob_(req, user) {
   jobItemTypesCache_ = null; // re-read Settings once per request
-  var acts = { jobReviewList: jobReviewList_, jobPhoto: jobPhoto_, jobClientSearch: jobClientSearch_, jobReviewSave: jobReviewSave_, jobBulkLocation: jobBulkLocation_ };
+  var acts = { jobReviewList: jobReviewList_, jobPhoto: jobPhoto_, jobClientSearch: jobClientSearch_, jobReviewSave: jobReviewSave_, jobBulkLocation: jobBulkLocation_, jobSearch: jobSearch_ };
   if (!acts[req.action]) return { ok: false, error: 'Unknown action' };
   if (!JOB_ROLES[user.role]) { audit_(user.username, 'denied', req.action, req.device_id, 'role ' + user.role); return { ok: false, error: 'Not allowed', code: 'FORBIDDEN' }; }
   if (!jobTabsReady_()) return { ok: false, error: 'The Sheet is not set up for scans yet (run setupJobs).', code: 'NO_TABS' };
@@ -218,6 +221,7 @@ function jobView_(j, pages, clients, user) {
   ['type', 'parent_jo', 'status', 'location', 'current_stage', 'description', 'metal', 'karat', 'size', 'item_type', 'stone_type', 'stone_size', 'grade',
     'material', 'weight_g', 'review_state', 'client_id'].forEach(function (k) { o[k] = jobStr_(j[k]); });
   o.due_date = jobDay_(j.due_date); o.client = jobPublicClient_(cl, user); o.pages = pages || []; o.scanned_at = jobStr_(j.created_at);
+  o.archived = o.location === 'archived'; o.on_hand = jobOnHand_(j);
   var it = jobItemTypes_().filter(function (t) { return t[0] === o.item_type; })[0];
   o.missing = JOB_NEEDED.concat(it ? it[2] : []).filter(function (k) { return k === 'client' ? !o.client : !o[k]; });
   return o;
@@ -255,6 +259,23 @@ function jobReviewList_(req, user) {
     .map(function (j) { return jobView_(j, pages[jobKey_(j.jo)], clients, user); })
     .sort(function (a, b) { return a.jo < b.jo ? -1 : a.jo > b.jo ? 1 : 0; });
   return { ok: true, jobs: jobs, locations: JOB_LOCATIONS, item_types: jobItemTypes_(), can_see_phone: user.role === 'admin' };
+}
+/** Search every JO (reviewed or not, archived included) by JO number, description or client name. Up to 50, JO order. */
+function jobSearch_(req, user) {
+  var q = String(req.q || '').trim().toUpperCase().replace(/\s+/g, ' ');
+  if (q.length < 2) return { ok: true, q: q, jobs: [] };
+  var clients = jobClientsById_(), joQ = jobKey_(q);
+  var hits = jobRows_('JobOrders').filter(function (j) {
+    if (!jobKey_(j.jo) || j.status === 'cancelled') return false;
+    var cl = clients[String(j.client_id || '')];
+    return jobKey_(j.jo).indexOf(joQ || q) === 0 || jobKey_(j.jo).indexOf(q) >= 0 || String(j.description || '').toUpperCase().indexOf(q) >= 0
+      || (cl && (String(cl.name || '') + ' ' + String(cl.aliases || '')).toUpperCase().indexOf(q) >= 0);
+  }).map(function (j) {
+    var o = jobView_(j, null, clients, user);
+    return { jo: o.jo, description: o.description, location: o.location, archived: o.archived, on_hand: o.on_hand, status: o.status,
+      review_state: o.review_state, item_type: o.item_type, client: o.client ? { name: o.client.name } : null, parent_jo: o.parent_jo };
+  }).sort(function (a, b) { return a.jo < b.jo ? -1 : a.jo > b.jo ? 1 : 0; });
+  return { ok: true, q: q, total: hits.length, jobs: hits.slice(0, 50), locations: JOB_LOCATIONS };
 }
 /** A card photo as a data URL, only for a file that OcrLog ties to that JO (Drive files stay private). */
 function jobPhoto_(req, user) {
