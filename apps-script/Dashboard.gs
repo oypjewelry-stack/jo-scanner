@@ -22,6 +22,8 @@ var DASH = {
     ['qc', 'QC', ['qc', 'photo', 'final_costing']],
     ['pickup', 'Pickup', ['notify', 'pickup']]
   ],
+  LOCATIONS: [['working', 'Being worked on'], ['queue', 'In queue'], ['pickup', 'For pickup'], ['vault', 'In vault'], ['showroom', 'Showroom'],
+    ['consigned', 'Consigned'], ['sold', 'Sold']],
   OPEN_STATUSES: ['draft', 'active', 'done'] // done = finished, waiting for pickup; picked_up / cancelled are closed
 };
 // What each role may see. Sales + chart: admin only. Consignment (values follow cost rules): admin + PM.
@@ -45,7 +47,12 @@ function dashboard_(req, user) {
   var clients = {}; if (can.clients) T('Clients').forEach(function (c) { clients[String(c.client_id)] = { name: String(c.name || ''), phone: String(c.phone || '') }; });
 
   /* ---- jobs ---- */
-  var jobs = T('JobOrders').filter(function (j) { return j.jo !== '' && DASH.OPEN_STATUSES.indexOf(String(j.status || 'draft')) >= 0; });
+  // Once JobOrders has a 'location' column (JobSync.gs), only 'Being worked on' JOs sit on the production board.
+  var allJobs = T('JobOrders').filter(function (j) { return j.jo !== '' && j.jo != null; });
+  var useLoc = allJobs.some(function (j) { return 'location' in j; });
+  var live = function (j) { return String(j.status || '') !== 'cancelled'; };
+  var jobs = useLoc ? allJobs.filter(function (j) { return live(j) && String(j.location || '') === 'working'; })
+    : allJobs.filter(function (j) { return DASH.OPEN_STATUSES.indexOf(String(j.status || 'draft')) >= 0; });
   var colOf = {}; DASH.COLUMNS.forEach(function (c) { c[2].forEach(function (code) { colOf[code] = c[0]; }); });
   var board = DASH.COLUMNS.map(function (c) { return { key: c[0], label: c[1], count: 0, cards: [] }; });
   var byKey = {}; board.forEach(function (c) { byKey[c.key] = c; });
@@ -53,13 +60,22 @@ function dashboard_(req, user) {
     if (s.status === 'doing' && s.started_at) { var k = String(s.jo) + '|' + s.stage_code; stageSince[k] = dashDay_(s.started_at); }
   });
   var activeJobs = 0, reviews = 0, pastDue = 0;
+  if (useLoc) {
+    allJobs.forEach(function (j) {
+      if (!live(j)) return;
+      if (j.review_state === 'draft' || String(j.status || '') === 'draft') reviews++;
+      var d = dashDay_(j.due_date), loc = String(j.location || '');
+      if (d && d < today && (loc === 'working' || loc === 'queue')) pastDue++;
+    });
+    activeJobs = jobs.length;
+  }
   jobs.forEach(function (j) {
     var st = String(j.status || 'draft'), stage = String(j.current_stage || ''), due = dashDay_(j.due_date);
-    if (st === 'active') activeJobs++;
-    if (st === 'draft' || j.review_state === 'draft') reviews++;
+    if (!useLoc && st === 'active') activeJobs++;
+    if (!useLoc && (st === 'draft' || j.review_state === 'draft')) reviews++;
     var late = !!(due && due < today && st !== 'done');
-    if (late) pastDue++;
-    var col = st === 'done' ? 'pickup' : (colOf[stage] || 'intake');
+    if (!useLoc && late) pastDue++;
+    var col = !useLoc && st === 'done' ? 'pickup' : (colOf[stage] || 'intake');
     var card = { jo: String(j.jo), description: String(j.description || ''), type: String(j.type || ''), stage: stage,
       status: st, due: due, late: late, review: st === 'draft' || j.review_state === 'draft',
       since: stageSince[String(j.jo) + '|' + stage] || '' };
@@ -93,7 +109,15 @@ function dashboard_(req, user) {
         jo: String(ci.jo || it.jo || ''), description: String(it.name || it.description || ''), consignee: people[String(h.consignee_id)] || '',
         date_out: d, days_out: days, overdue: days != null && days > overdueDays, value: Number(ci.agreed_value || it.agreed_value) || null };
     }).sort(function (a, b) { return (b.days_out || 0) - (a.days_out || 0); });
-    out.counts.consigned_out = outItems.length;
+    var outJos = {}; outItems.forEach(function (x) { if (x.jo) outJos[x.jo] = true; });
+    var consignedJos = allJobs.filter(function (j) { return live(j) && String(j.location || '') === 'consigned' && !outJos[String(j.jo)]; }).length;
+    out.counts.consigned_out = outItems.length + consignedJos; // items on consignment sheets + JOs marked Consigned
+    out.counts.consigned_jos = consignedJos;
+    if (useLoc) {
+      var loc = {}; DASH.LOCATIONS.forEach(function (l) { loc[l[0]] = 0; }); loc.unset = 0;
+      allJobs.forEach(function (j) { if (!live(j)) return; var k = String(j.location || ''); if (k in loc && k !== 'unset') loc[k]++; else loc.unset++; });
+      out.locations = DASH.LOCATIONS.map(function (l) { return { key: l[0], label: l[1], count: loc[l[0]] }; }).concat([{ key: 'unset', label: 'No location yet', count: loc.unset }]);
+    }
     out.counts.overdue_consignments = outItems.filter(function (x) { return x.overdue; }).length;
     out.consignments = outItems;
   }

@@ -26,7 +26,7 @@ ok(g.setupJobs().added.length === 0, 'setupJobs is safe to run twice');
 r = scan('JO 26-001', 1, {}, 'JOB ORDER\nDATE DUE: Jan 17 \'26\nJO# 26-001\nKARAT GOLD AG');
 ok(r.ok && r.match, 'scan still returns ok + match');
 let jo = tab('JobOrders');
-ok(jo.length === 1 && jo[0].jo === '26-001' && jo[0].status === 'draft' && jo[0].review_state === 'draft' && jo[0].current_stage === 'intake' && jo[0].type === 'new', 'first scan -> one draft JobOrders row at intake');
+ok(jo.length === 1 && jo[0].jo === '26-001' && jo[0].status === 'draft' && jo[0].review_state === 'draft' && jo[0].current_stage === 'intake' && jo[0].type === '' && jo[0].location === '', 'first scan -> one draft JobOrders row at intake, type + location blank (filled at review)');
 ok(String(jo[0].drive_folder_id).startsWith('fld-'), 'drive folder id stored');
 let st = tab('JobStages'); ok(st.length === 1 && st[0].stage_code === 'intake' && st[0].status === 'doing' && st[0].started_at, 'first JobStage intake/doing added');
 let ol = tab('OcrLog'); ok(ol.length === 1 && ol[0].ocr_text.includes('DATE DUE') && ol[0].review_state === 'draft' && ol[0].page === 1, 'OcrLog keeps the OCR text');
@@ -42,7 +42,7 @@ ol = tab('OcrLog'); ok(ol.length === 3 && ol[0].review_state === 'replaced' && o
 // human edits are never overwritten
 const sh = g._.sheets.JobOrders, H = sh.data[0];
 const setCell = (k, v) => { sh.data[1][H.indexOf(k)] = v; };
-setCell('description', 'Coin necklace'); setCell('status', 'active'); setCell('current_stage', 'bench'); setCell('review_state', 'reviewed'); setCell('drive_folder_id', 'fld-manual'); setCell('type', 'repair');
+setCell('description', 'Coin necklace'); setCell('status', 'active'); setCell('current_stage', 'bench'); setCell('review_state', 'reviewed'); setCell('drive_folder_id', 'fld-manual'); setCell('type', 'repair'); setCell('location', 'working');
 r = scan('26-001', 3, { type: 'new' });
 jo = tab('JobOrders')[0];
 ok(jo.description === 'Coin necklace' && jo.status === 'active' && jo.current_stage === 'bench' && jo.review_state === 'reviewed', 'workflow + human fields untouched by re-scan');
@@ -81,7 +81,9 @@ g.jobRows_ = realRows; ok(tab('AuditLog').some(a => a.action === 'jobSyncError')
 const adm = g.call({ action: 'login', username: 'miriam', code: '3816', device_id: 'd' }).session;
 const d = g.call({ action: 'dashboard', session: adm });
 ok(d.ok && !d.missing.includes('JobOrders') && !d.missing.includes('JobStages'), 'dashboard no longer reports JobOrders/JobStages missing');
-ok(d.counts.pending_breakdown.reviews === 7 && d.counts.active_jobs === 1 && d.board.find(c => c.key === 'intake').cards.some(c => c.jo === '26-005B'), 'scanned drafts show on the board as reviews');
+ok(d.counts.pending_breakdown.reviews === 7 && d.counts.active_jobs === 1, 'scanned drafts count as reviews; only the Being-worked-on JO is active');
+ok(d.board.reduce((n, c) => n + c.count, 0) === 1, 'drafts without a location stay off the production board');
+ok(d.locations.find(l => l.key === 'unset').count === 7 && d.locations.find(l => l.key === 'working').count === 1, 'location counts row: 7 need review, 1 being worked on');
 ok(d.board.find(c => c.key === 'casting').cards.some(c => c.jo === '26-001' && c.client === undefined), 'human-moved JO shows in its real column');
 const tok = g.call({ action: 'login', username: 'thea', code: '1111', device_id: 'e' }).session;
 const sd = g.call({ action: 'dashboard', session: tok }); ok(sd.ok && sd.board.every(c => c.cards.every(x => !x.client)), 'staff board has no client names');

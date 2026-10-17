@@ -13,11 +13,13 @@ module.exports = function load() {
   const ss = { getSheetByName: n => sheets[n] || null, insertSheet: n => (sheets[n] = new Sheet(n)), getId: () => 'mock', getUrl: () => 'mock://sheet' };
   const folders = {};
   function mkFolder(name) { if (folders[name]) return folders[name]; const f = { name, id: 'fld-' + name, files: [], subs: {},
-    getId: () => 'fld-' + name, getUrl: () => 'mock://folder/' + name,
+    getId: () => 'fld-' + name, getUrl: () => 'mock://folder/' + name, getName: () => name.split('/').pop(),
+    getFolders() { const l = Object.values(this.subs); let i = 0; return { hasNext: () => i < l.length, next: () => l[i++] }; },
+    getFiles() { const l = this.files.filter(x => !x.trashed); let i = 0; return { hasNext: () => i < l.length, next: () => l[i++] }; },
     getFoldersByName(n) { const s = this.subs[n]; let used = false; return { hasNext: () => !!s && !used, next: () => { used = true; return s; } }; },
     createFolder(n) { return (this.subs[n] = mkFolder(name + '/' + n)); },
     getFilesByName(n) { const l = this.files.filter(x => x.name === n && !x.trashed); let i = 0; return { hasNext: () => i < l.length, next: () => l[i++] }; },
-    createFile(b) { const x = { name: b.name, trashed: false, id: 'file-' + (++fileSeq), getId() { return this.id; }, getUrl() { return 'mock://file/' + this.id; }, setTrashed(v) { this.trashed = v; } }; this.files.push(x); return x; } };
+    createFile(b) { const x = { name: b.name, trashed: false, id: 'file-' + (++fileSeq), getId() { return this.id; }, getName() { return this.name; }, isTrashed() { return this.trashed; }, getUrl() { return 'mock://file/' + this.id; }, setTrashed(v) { this.trashed = v; } }; this.files.push(x); return x; } };
     return (folders[name] = f); }
   let fileSeq = 0; const ocrQueue = [];
   const ctx = {
@@ -34,7 +36,7 @@ module.exports = function load() {
     Drive: { Files: { create: () => ({ id: 'doc' }) } },
     DocumentApp: { openById: () => ({ getBody: () => ({ getText: () => (ocrQueue.length ? ocrQueue.shift() : '') }) }) },
     MailApp: { sent: [], sendEmail(o) { this.sent.push(o); } },
-    DriveApp: { getRootFolder() { return mkFolder('root'); }, getFileById: id => ({ setTrashed() {}, getThumbnail: () => ({ getContentType: () => 'image/png', getBytes: () => Buffer.from('img:' + id) }) }) },
+    DriveApp: { getRootFolder() { return mkFolder('root'); }, getFileById: id => ({ setTrashed() {}, getThumbnail: () => ({ getContentType: () => 'image/png', getBytes: () => Buffer.from('img:' + id) }), getBlob: () => ({ getContentType: () => 'image/jpeg', getBytes: () => Buffer.from('full:' + id) }) }) },
   };
   vm.createContext(ctx);
   for (const f of ['Code.gs', 'Auth.gs', 'Customers.gs', 'Dashboard.gs', 'JobSync.gs'].filter(f => fs.existsSync(__dirname + '/../apps-script/' + f))) vm.runInContext(fs.readFileSync(__dirname + '/../apps-script/' + f, 'utf8'), ctx);

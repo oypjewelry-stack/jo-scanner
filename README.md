@@ -69,9 +69,14 @@ Email limit: Gmail allows about 100 automatic emails a day; the script caps itse
 
 ## Scans -> Sheet (JobSync.gs) — one-time update
 1. Add a new **Script** file named `JobSync` and paste `apps-script/JobSync.gs`.
-2. In `Code.gs` `doPost`, right after the line `var found = findJOs_(ocrText);`, add:
+2. In `Auth.gs` `handleAction_`, right after the `dashboard` line, add:
+   `if (typeof isJobAction_ === 'function' && isJobAction_(a)) return handleJob_(req, s.user); // JobSync.gs`
+   In `Code.gs` `doPost`, right after the line `var found = findJOs_(ocrText);`, add:
    `var job = typeof recordScan_ === 'function' ? recordScan_(req, jo, file, folder, ocrText, found, ocrError) : null; // JobSync.gs`
 3. Select `setupJobs` and click **Run**. It only ADDS the tabs JobOrders, JobStages, Clients, OcrLog (existing tabs are left as they are).
-4. **Deploy → Manage deployments → Edit → New version → Deploy**.
-Each uploaded page then adds an OcrLog row; the first scan of a JO adds a draft JobOrders row + its first stage. Re-scans never
+4. Replace `Dashboard.gs` with the version here (location counts; only "Being worked on" JOs on the board).
+5. Optional: run `importExistingScans` (again until the log says Done) for cards scanned before this update.
+6. **Deploy → Manage deployments → Edit → New version → Deploy**.
+Back office **To review** (admin + production manager): card photos (served by the script, Drive files stay private), location picker,
+quick edit, bulk "set location". Each uploaded page then adds an OcrLog row; the first scan of a JO adds a draft JobOrders row + its first stage. Re-scans never
 duplicate and only fill blank cells (overwrite needs `overwrite:true`). Until setupJobs is run, scans work exactly as before.

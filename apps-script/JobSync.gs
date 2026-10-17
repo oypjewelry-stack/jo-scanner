@@ -15,10 +15,15 @@
  *   - Clients: only when the request carries client_name / client_phone (the scanner doesn't send them yet).
  *     Matches an existing client by phone, then by name/alias; adds one only if nothing matches; never links when 2+ match.
  * Never deletes, never edits rows it didn't create apart from filling blanks, never throws: a Sheet problem can't fail an upload.
- * One-time: run setupJobs() to ADD the tabs JobOrders, JobStages, Clients, OcrLog (existing tabs are left as they are).
+ * One-time: run setupJobs() to ADD the tabs JobOrders, JobStages, Clients, OcrLog (existing tabs are left as they are;
+ *   the only exception: a JobOrders tab without a 'location' column gets that one header cell added at the far right).
+ * Optional: run importExistingScans() (repeat until it says done) to bring cards scanned BEFORE this update into the Sheet.
+ *
+ * Back office "To review" (staff app #/review), admin + production_manager only. Hook (Auth.gs handleAction_, after the dashboard line):
+ *   if (typeof isJobAction_ === 'function' && isJobAction_(a)) return handleJob_(req, s.user); // JobSync.gs
  */
 var JOB_TABS = {
-  JobOrders: ['jo', 'type', 'parent_jo', 'root_jo', 'status', 'current_stage', 'item_id', 'client_id', 'description', 'metal', 'karat',
+  JobOrders: ['jo', 'type', 'parent_jo', 'root_jo', 'status', 'location', 'current_stage', 'item_id', 'client_id', 'description', 'metal', 'karat',
     'size', 'due_date', 'rate_snapshot_id', 'product_photo_file_id', 'drive_folder_id', 'review_state',
     'created_at', 'created_by', 'updated_at', 'updated_by'],
   JobStages: ['stage_id', 'jo', 'seq', 'stage_code', 'status', 'started_at', 'ended_at', 'assignee', 'created_at', 'created_by', 'updated_at', 'updated_by'],
@@ -27,6 +32,7 @@ var JOB_TABS = {
     'reviewed_by', 'reviewed_at', 'created_at', 'created_by']
 };
 var JOB_SCAN_FIELDS = ['type', 'parent_jo', 'root_jo', 'client_id', 'drive_folder_id']; // the only JobOrders cells a scan may fill
+var JOB_ADD_COLS = { JobOrders: ['location'] }; // new columns setupJobs may add (header only) to a JobOrders tab made before this version
 var JOB_OCR_MAX = 45000; // a Sheet cell holds 50,000 characters
 
 /** ONE-TIME SETUP: select setupJobs and click Run. Adds missing tabs only; never changes a tab that exists. */
@@ -34,7 +40,12 @@ function setupJobs() {
   var ss = ss_(), added = [], kept = [];
   Object.keys(JOB_TABS).forEach(function (name) {
     var sh = ss.getSheetByName(name);
-    if (sh) { var miss = jobMissingCols_(sh, name); kept.push(name + (miss.length ? ' (no column: ' + miss.join(', ') + ')' : '')); return; }
+    if (sh) {
+      var h = jobHeader_(sh), extra = JOB_ADD_COLS[name] ? JOB_ADD_COLS[name].filter(function (k) { return h.indexOf(k) < 0; }) : [];
+      if (h.length && extra.length) { sh.getRange(1, h.length + 1, 1, extra.length).setValues([extra]); } // header cells only, at the far right
+      var miss = jobMissingCols_(sh, name);
+      kept.push(name + (extra.length ? ' (added column: ' + extra.join(', ') + ')' : '') + (miss.length ? ' (no column: ' + miss.join(', ') + ')' : '')); return;
+    }
     sh = ss.insertSheet(name); sh.getRange(1, 1, 1, JOB_TABS[name].length).setValues([JOB_TABS[name]]); sh.setFrozenRows(1); added.push(name);
   });
   audit_('setup', 'setupJobs', '', '', 'added ' + (added.join(', ') || 'none') + '; kept ' + (kept.join(', ') || 'none'));
@@ -65,12 +76,12 @@ function recordScan_(req, jo, file, folder, ocrText, found, ocrError) {
       var client = jobClient_(req, by, t); if (client.note) out.client_note = client.note;
 
       // 3. JobOrders: add once, then fill blanks only
-      var rev = key.match(/^(\d{2}-\d{3,4})([A-Z])$/), type = rev ? 'revision' : (req.type === 'repair' ? 'repair' : 'new');
-      var want = { type: (rev || req.type) ? type : '', parent_jo: rev ? rev[1] : '', root_jo: rev ? rev[1] : '', client_id: client.id || '', drive_folder_id: folderId };
+      var rev = key.match(/^(\d{2}-\d{3,4})([A-Z])$/), type = rev ? 'revision' : (req.type === 'repair' || req.type === 'new' ? req.type : '');
+      var want = { type: type, parent_jo: rev ? rev[1] : '', root_jo: rev ? rev[1] : '', client_id: client.id || '', drive_folder_id: folderId };
       var row = jobRows_('JobOrders').filter(function (r) { return jobKey_(r.jo) === key; });
       if (row.length > 1) out.warning = row.length + ' JobOrders rows for ' + key + '; only the first is used';
       if (!row.length) {
-        jobAppend_('JobOrders', { jo: key, type: type, parent_jo: want.parent_jo, root_jo: want.root_jo, status: 'draft',
+        jobAppend_('JobOrders', { jo: key, type: type, parent_jo: want.parent_jo, root_jo: want.root_jo, status: 'draft', location: '',
           current_stage: type === 'repair' ? 'receive_inspect' : 'intake', client_id: want.client_id, drive_folder_id: want.drive_folder_id,
           review_state: 'draft', created_at: t, created_by: by, updated_at: t, updated_by: by });
         out.created = true;
@@ -154,4 +165,178 @@ function jobParse_(text) {
   if (/\bREPAIR\b/.test(u) && !/\bNEW\s*JOB\b/.test(u)) p.type_hint = 'repair';
   var k = u.match(/KARAT\s*(?:GOLD)?\s*[:\-]?\s*(\d{1,2}\s*K|AG|925|SILVER)/); if (k) p.karat_text = k[1].replace(/\s+/g, '');
   return p;
+}
+
+/* ======================= back office: To review ======================= */
+var JOB_LOCATIONS = [['vault', 'In vault'], ['showroom', 'Showroom'], ['consigned', 'Consigned'], ['working', 'Being worked on'],
+  ['queue', 'In queue'], ['pickup', 'For pickup'], ['sold', 'Sold']];
+var JOB_LOC_STATUS = { working: 'active', queue: 'active', pickup: 'done', vault: 'done', showroom: 'done', consigned: 'done', sold: 'picked_up' };
+var JOB_EDIT = ['location', 'type', 'due_date', 'metal', 'karat', 'size', 'description', 'status', 'client_id'];
+var JOB_NEEDED = ['location', 'client', 'due_date', 'type', 'metal', 'karat', 'description']; // shown as "missing" flags
+var JOB_STATUSES = ['draft', 'active', 'done', 'picked_up', 'cancelled'];
+var JOB_ROLES = { admin: true, production_manager: true }; // everyone else: no access to these actions
+
+function isJobAction_(a) { return /^job[A-Z]/.test(String(a || '')); }
+function handleJob_(req, user) {
+  var acts = { jobReviewList: jobReviewList_, jobPhoto: jobPhoto_, jobClientSearch: jobClientSearch_, jobReviewSave: jobReviewSave_, jobBulkLocation: jobBulkLocation_ };
+  if (!acts[req.action]) return { ok: false, error: 'Unknown action' };
+  if (!JOB_ROLES[user.role]) { audit_(user.username, 'denied', req.action, req.device_id, 'role ' + user.role); return { ok: false, error: 'Not allowed', code: 'FORBIDDEN' }; }
+  if (!jobTabsReady_()) return { ok: false, error: 'The Sheet is not set up for scans yet (run setupJobs).', code: 'NO_TABS' };
+  var write = req.action === 'jobReviewSave' || req.action === 'jobBulkLocation';
+  return write ? withLock_(function () { return acts[req.action](req, user); }) : acts[req.action](req, user);
+}
+function jobStr_(v) { return v instanceof Date ? jobDay_(v) : String(v == null ? '' : v).trim(); }
+function jobDay_(d) {
+  if (d === '' || d == null) return '';
+  if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d.trim())) return d.trim();
+  var x = d instanceof Date ? d : new Date(d); if (isNaN(x.getTime())) return String(d);
+  return new Date(x.getTime() + 8 * 36e5).toISOString().slice(0, 10); // Asia/Manila
+}
+function jobClientsById_() { var m = {}; jobRows_('Clients').forEach(function (c) { m[String(c.client_id)] = c; }); return m; }
+function jobPublicClient_(c, user) {
+  if (!c) return null; var o = { client_id: String(c.client_id), name: String(c.name || '') };
+  if (user.role === 'admin') o.phone = String(c.phone || ''); // PM sees client names only (spec §10)
+  return o;
+}
+function jobView_(j, pages, clients, user) {
+  var o = { jo: jobKey_(j.jo) }, cl = clients[String(j.client_id || '')];
+  ['type', 'parent_jo', 'status', 'location', 'current_stage', 'description', 'metal', 'karat', 'size', 'review_state', 'client_id'].forEach(function (k) { o[k] = jobStr_(j[k]); });
+  o.due_date = jobDay_(j.due_date); o.client = jobPublicClient_(cl, user); o.pages = pages || []; o.scanned_at = jobStr_(j.created_at);
+  o.missing = JOB_NEEDED.filter(function (k) { return k === 'client' ? !o.client : !o[k]; });
+  return o;
+}
+function jobPages_() { // jo -> latest non-replaced scan per page
+  var by = {};
+  jobRows_('OcrLog').forEach(function (r) {
+    if (r.review_state === 'replaced' || r.review_state === 'discarded' || !r.file_id) return;
+    var k = jobKey_(r.jo), pg = Number(r.page) || 1; by[k] = by[k] || {};
+    by[k][pg] = { page: pg, file_id: String(r.file_id), scan_id: String(r.scan_id) };
+  });
+  var out = {}; Object.keys(by).forEach(function (k) { out[k] = Object.keys(by[k]).map(Number).sort(function (a, b) { return a - b; }).map(function (p) { return by[k][p]; }); });
+  return out;
+}
+/** Draft JOs from scans (review_state draft, not cancelled), oldest JO number first. */
+function jobReviewList_(req, user) {
+  var pages = jobPages_(), clients = jobClientsById_();
+  var jobs = jobRows_('JobOrders').filter(function (j) { return jobKey_(j.jo) && j.review_state === 'draft' && j.status !== 'cancelled'; })
+    .map(function (j) { return jobView_(j, pages[jobKey_(j.jo)], clients, user); })
+    .sort(function (a, b) { return a.jo < b.jo ? -1 : a.jo > b.jo ? 1 : 0; });
+  return { ok: true, jobs: jobs, locations: JOB_LOCATIONS, can_see_phone: user.role === 'admin' };
+}
+/** A card photo as a data URL, only for a file that OcrLog ties to that JO (Drive files stay private). */
+function jobPhoto_(req, user) {
+  var key = jobKey_(req.jo), id = String(req.file_id || '');
+  var mine = jobRows_('OcrLog').some(function (r) { return jobKey_(r.jo) === key && String(r.file_id) === id && r.review_state !== 'discarded'; });
+  if (!key || !id || !mine) { audit_(user.username, 'denied', 'jobPhoto', req.device_id, key + ' ' + id); return { ok: false, error: 'Not allowed', code: 'FORBIDDEN' }; }
+  try {
+    var f = DriveApp.getFileById(id), b = req.size === 'full' ? f.getBlob() : (f.getThumbnail() || f.getBlob());
+    if (b.getBytes().length > 6e6) return { ok: false, error: 'Photo too large to show' };
+    return { ok: true, src: 'data:' + (b.getContentType() || 'image/jpeg') + ';base64,' + Utilities.base64Encode(b.getBytes()) };
+  } catch (e) { return { ok: true, src: '', error: 'Photo not found in Drive' }; }
+}
+function jobClientSearch_(req, user) {
+  var q = jobName_(req.q), ph = jobPhone_(req.q);
+  if (q.length < 2) return { ok: true, clients: [] };
+  var hits = jobRows_('Clients').filter(function (c) {
+    return jobName_(c.name).indexOf(q) >= 0 || jobName_(c.aliases).indexOf(q) >= 0 || (user.role === 'admin' && ph.length >= 4 && jobPhone_(c.phone).indexOf(ph) >= 0);
+  }).slice(0, 12);
+  return { ok: true, clients: hits.map(function (c) { return jobPublicClient_(c, user); }) };
+}
+function jobClean_(k, v) {
+  v = String(v == null ? '' : v).trim().replace(/\s+/g, ' ');
+  if (k === 'location' && v && !JOB_LOCATIONS.some(function (l) { return l[0] === v; })) throw new Error('Unknown location');
+  if (k === 'type' && v && ['new', 'repair', 'revision'].indexOf(v) < 0) throw new Error('Unknown type');
+  if (k === 'status' && v && JOB_STATUSES.indexOf(v) < 0) throw new Error('Unknown status');
+  if (k === 'due_date' && v && !/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new Error('Due date must look like 2026-01-17');
+  return v.slice(0, k === 'description' ? 300 : 80);
+}
+/**
+ * Save the review form. set = new values, seen = the values the form showed when it opened.
+ * A filled cell is only changed if it still equals what the person saw (never a blind overwrite);
+ * otherwise NOTHING is saved and the conflicts are returned with the current values.
+ */
+function jobReviewSave_(req, user) {
+  var key = jobKey_(req.jo), row = jobRows_('JobOrders').filter(function (j) { return jobKey_(j.jo) === key; })[0];
+  if (!row) return { ok: false, error: 'No such JO' };
+  var set = req.set || {}, seen = req.seen || {}, want = {}, conflicts = [];
+  try { Object.keys(set).forEach(function (k) { if (JOB_EDIT.indexOf(k) >= 0) want[k] = jobClean_(k, set[k]); }); }
+  catch (e) { return { ok: false, error: e.message }; }
+  var t = now_(), by = user.username, nc = req.new_client;
+  if (nc && (String(nc.name || '').trim() || String(nc.phone || '').trim())) {
+    if (!String(nc.name || '').trim()) return { ok: false, error: 'Type the client name' };
+    var c = jobClient_({ client_name: nc.name, client_phone: nc.phone }, by, t);
+    if (!c.id) return { ok: false, error: c.note || 'Could not add the client' };
+    want.client_id = c.id;
+  }
+  var changes = {};
+  Object.keys(want).forEach(function (k) {
+    if (!(k in row)) return; // column not in this Sheet
+    var cur = k === 'due_date' ? jobDay_(row[k]) : jobStr_(row[k]), nv = want[k];
+    if (nv === cur) return;
+    if (cur !== '' && jobStr_(seen[k]) !== cur) { conflicts.push({ field: k, now: cur, yours: nv }); return; }
+    changes[k] = nv;
+  });
+  if (conflicts.length) return { ok: false, code: 'CONFLICT', error: 'Someone changed this JO while you were editing. Check the highlighted fields.', conflicts: conflicts };
+  var loc = 'location' in changes ? changes.location : jobStr_(row.location), st = 'status' in changes ? changes.status : jobStr_(row.status);
+  if (loc && (st === 'draft' || st === '') && !('status' in want)) changes.status = JOB_LOC_STATUS[loc];
+  if (req.mark_reviewed) {
+    if (!loc) return { ok: false, error: 'Pick where the piece is (location) before marking it reviewed' };
+    if (row.review_state !== 'reviewed') changes.review_state = 'reviewed';
+    if (('status' in changes ? changes.status : st) === 'draft') changes.status = JOB_LOC_STATUS[loc];
+  }
+  var log = Object.keys(changes).map(function (k) { return k + ': ' + (jobStr_(row[k]) || '—') + ' -> ' + (changes[k] || '—'); });
+  if (log.length) {
+    changes.updated_at = t; changes.updated_by = by; jobSet_('JobOrders', row._row, changes);
+    audit_(by, 'jobReview', key, req.device_id, log.join('; ').slice(0, 1000));
+  }
+  if (changes.review_state === 'reviewed') jobRows_('OcrLog').forEach(function (r) {
+    if (jobKey_(r.jo) === key && r.review_state === 'draft') jobSet_('OcrLog', r._row, { review_state: 'saved', reviewed_by: by, reviewed_at: t });
+  });
+  var fresh = jobRows_('JobOrders').filter(function (j) { return jobKey_(j.jo) === key; })[0];
+  return { ok: true, changed: log, job: jobView_(fresh, jobPages_()[key], jobClientsById_(), user) };
+}
+/** Set one location on many JOs. A JO that already has a different location is left alone unless overwrite:true. */
+function jobBulkLocation_(req, user) {
+  var loc; try { loc = jobClean_('location', req.location); } catch (e) { return { ok: false, error: e.message }; }
+  if (!loc) return { ok: false, error: 'Pick a location' };
+  var want = (req.jos || []).map(jobKey_).filter(String); if (!want.length) return { ok: false, error: 'Select at least one JO' };
+  if (want.length > 500) return { ok: false, error: 'At most 500 at a time' };
+  var rows = {}; jobRows_('JobOrders').forEach(function (j) { var k = jobKey_(j.jo); if (k && !rows[k]) rows[k] = j; });
+  var t = now_(), done = [], kept = [], missing = [];
+  want.forEach(function (k) {
+    var r = rows[k]; if (!r) { missing.push(k); return; }
+    var cur = jobStr_(r.location); if (cur === loc) { done.push(k); return; }
+    if (cur && req.overwrite !== true) { kept.push({ jo: k, location: cur }); return; }
+    var ch = { location: loc, updated_at: t, updated_by: user.username };
+    if (jobStr_(r.status) === 'draft' || !jobStr_(r.status)) ch.status = JOB_LOC_STATUS[loc];
+    jobSet_('JobOrders', r._row, ch); done.push(k);
+  });
+  audit_(user.username, 'jobBulkLocation', loc, req.device_id, done.length + ' set' + (kept.length ? ', ' + kept.length + ' kept' : '') + (req.overwrite === true ? ' (overwrite)' : '') + ': ' + done.join(', ').slice(0, 800));
+  return { ok: true, set: done, kept: kept, missing: missing };
+}
+
+/**
+ * OPTIONAL one-time import of cards scanned BEFORE JobSync was installed (Drive "Job Order Cards/<JO>/<JO>-pN.jpg").
+ * Adds OcrLog rows (no OCR text) and draft JobOrders rows exactly like a new scan; skips any file already in OcrLog.
+ * Stops after ~4.5 minutes; run it again until the log says "done".
+ */
+function importExistingScans() {
+  if (!jobTabsReady_()) throw new Error('Run setupJobs first');
+  var start = Date.now(), root = DriveApp.getRootFolder().getFoldersByName(PARENT_FOLDER);
+  if (!root.hasNext()) { Logger.log('No "' + PARENT_FOLDER + '" folder in Drive; nothing to import.'); return { done: true, added: 0 }; }
+  var logged = {}; jobRows_('OcrLog').forEach(function (r) { logged[String(r.file_id)] = true; });
+  var it = root.next().getFolders(), added = 0, seenJos = 0;
+  while (it.hasNext()) {
+    var f = it.next(), jo = jobKey_(f.getName()); if (!jo) continue; seenJos++;
+    var files = f.getFiles();
+    while (files.hasNext()) {
+      var file = files.next(), name = file.getName(), m = name.match(/-p(\d+)\.jpe?g$/i);
+      if (logged[file.getId()] || (file.isTrashed && file.isTrashed())) continue;
+      if (Date.now() - start > 270000) { Logger.log('Paused after ' + added + ' pages. Run importExistingScans again to continue.'); return { done: false, added: added }; }
+      var r = recordScan_({ jo: f.getName(), page: m ? Number(m[1]) : 1, device_id: 'import' }, jo, file, f, '', [], 'imported (no OCR)');
+      if (r.ok) { logged[file.getId()] = true; added++; }
+    }
+  }
+  Logger.log('Done: ' + added + ' pages added from ' + seenJos + ' JO folders.');
+  return { done: true, added: added };
 }
