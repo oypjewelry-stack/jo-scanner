@@ -46,7 +46,7 @@ refreshWarn();
 /* ---------- back-office menu (same list as oypjewelry.com, from its nav.js; copy below if offline) ---------- */
 const STAFF_URL = 'https://oypjewelry.com/staff/'; // back office (oypjewelry.com/ itself is the customer landing page)
 const NAV_FALLBACK = { SITE: STAFF_URL, STAFF: STAFF_URL, NAV: {
-  admin: [['dashboard', 'Dashboard'], ['review', 'To review'], ['estimate', 'Cost estimator'], ['jos', 'Inventory'], ['scanner', 'Scanner'], ['inventory', 'Materials'], ['prices', 'Material prices'], ['customers', 'Customers'], ['shop', 'Shop listings'], ['payments', 'Quotes / payments'], ['users', 'Staff logins'], ['settings', 'Settings']],
+  admin: [['dashboard', 'Dashboard'], ['review', 'To review'], ['estimate', 'Cost estimator'], ['jos', 'Inventory'], ['scanner', 'Scanner'], ['inventory', 'Materials'], ['prices', 'Material prices'], ['customers', 'Customers'], ['shop', 'Shop listings'], ['payments', 'Quotes / payments'], ['settings', 'Settings']], // Staff logins: now Settings › Staff accounts
   production_manager: [['dashboard', 'Dashboard'], ['review', 'To review'], ['estimate', 'Cost estimator'], ['jos', 'Inventory'], ['scanner', 'Scanner'], ['production', 'Production'], ['inventory', 'Materials'], ['prices', 'Material prices']],
   accounting: [['dashboard', 'Dashboard'], ['payments', 'Payments'], ['quotes', 'Quotes'], ['balances', 'Balances'], ['clients', 'Clients (billing)'], ['jos', 'Inventory (view)']] } };
 function buildMenu() {
