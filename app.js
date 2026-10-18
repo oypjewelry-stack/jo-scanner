@@ -15,6 +15,8 @@ const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&a
 const state = { jo: '', page: 0, scan: '', stream: null, loop: null, lastQuad: null, steadySince: 0, armed: true, cooldownUntil: 0 };
 // pages are downscaled before upload: ~1600px long edge JPEG 0.8 is plenty for the card and for OCR, and 3-5x smaller
 const MAX_PX = 1600, QUALITY = 0.8, THUMB_PX = 160, STEADY_MS = 900, COOLDOWN_MS = 2500;
+// native-camera / gallery photos carry far more detail than a live frame: keep it (2400px long edge, JPEG 0.9) for OCR + the record
+const PHOTO = { maxPx: 2400, quality: 0.9 }, PHOTO_SRC_PX = 4000;
 
 /* ---------- JO normalisation (shared logic with Code.gs) ---------- */
 function normJO(s) {
@@ -85,10 +87,10 @@ $('btnStart').onclick = async () => {
   state.jo = jo; state.page = 0; state.scan = jo + '@' + Date.now().toString(36); state.armed = true; state.cooldownUntil = 0;
   $('joLabel').textContent = jo; updatePageLabel(); renderQueue();
   showView('scanView');
-  const b = $('btnStart'); b.textContent = 'SCAN'; b.classList.remove('pulse');
+  $('btnScanJO').classList.remove('pulse');
   try { await startCamera(); } catch (e) { console.error(e); hint('Could not start: ' + (e.message || e)); }
 };
-$('joInput').addEventListener('keydown', e => { if (e.key === 'Enter') $('btnStart').click(); });
+$('joInput').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); $('joInput').blur(); $('btnScanJO').classList.add('pulse'); } }); // Enter: keyboard away, Scan JO ready
 $('btnDone').onclick = () => {
   // nothing to confirm: every page is already stored on this phone and keeps uploading in the background
   const c = queue.counts();
@@ -109,15 +111,16 @@ function acquireStream() { // one getUserMedia at a time; reuse a live stream
   acquiring = navigator.mediaDevices.getUserMedia({ audio: false,
     video: { facingMode: { ideal: 'environment' }, width: { ideal: 2560 }, height: { ideal: 1920 } } })
     .then(s => { state.stream = s; video.srcObject = s; video.muted = true;
+      s.getVideoTracks().forEach(t => { try { const fm = t.getCapabilities && (t.getCapabilities().focusMode || []); if (fm.includes && fm.includes('continuous')) t.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(() => {}); } catch (e) {} });
       s.getVideoTracks().forEach(t => { t.addEventListener('ended', () => ensureLive('track ended')); t.addEventListener('unmute', () => ensureLive('track unmuted')); });
       return s; })
     .finally(() => { acquiring = null; });
   return acquiring;
 }
 // called synchronously from the mic tap (user gesture) so iOS allows the camera
-window.prewarmCamera = () => acquireStream().then(() => { video.play().catch(() => {}); return true; })
-  .catch(e => { console.error('camera prewarm failed', e); state.camError = e; return false; });
-window.askTapToStart = () => { const b = $('btnStart'); b.textContent = 'SCAN'; b.classList.add('pulse'); b.focus(); };
+// the phone's own camera is the default now, and it can only open from a tap: after voice, pulse Scan JO for that one tap
+window.prewarmCamera = () => Promise.resolve(false);
+window.askTapToStart = () => { const b = $('btnScanJO'); b.classList.add('pulse'); b.focus(); };
 async function startCamera() {
   try {
     await acquireStream();
@@ -202,10 +205,10 @@ function frameSig() { const c = sigC.getContext('2d', { willReadFrequently: true
 function sigDiff(a, b) { if (!a || !b) return 1; let t = 0; for (let i = 0; i < a.length; i++) t += Math.abs(a[i] - b[i]); return t / a.length / 255; }
 const SIG_CHANGE = 0.06;
 // hands-free state: armed = ready to snap the next page; disarmed after a snap until the page changes
-function detect(cv) {
-  const vw = video.videoWidth, vh = video.videoHeight; if (!vw) return null;
+function detect(cv, el) { // el: the live video (default) or a photo canvas
+  el = el || video; const vw = el.videoWidth || el.width, vh = el.videoHeight || el.height; if (!vw) return null;
   const s = DW / Math.max(vw, vh); work.width = Math.round(vw * s); work.height = Math.round(vh * s);
-  const c = work.getContext('2d', { willReadFrequently: true }); c.drawImage(video, 0, 0, work.width, work.height);
+  const c = work.getContext('2d', { willReadFrequently: true }); c.drawImage(el, 0, 0, work.width, work.height);
   const m = cv.imread(work);
   try { const r = CardDetector.detectQuad(cv, m, { size: DW }); state.lastConf = r ? r.confidence : 0; state.lastDet = r ? { s: r.support, r: r.rect, a: r.asp, st: r.step, v: r.votes, m: r.method, cut: r.cut, w: r.white } : null; return r ? r.quad : null; } finally { m.delete(); }
 }
@@ -258,7 +261,7 @@ function runLoop() {
 }
 
 /* ---------- capture -> review (draggable corners) -> warp ---------- */
-const review = { open: false, src: null, quad: null, replace: null };
+const review = { open: false, src: null, quad: null, replace: null, opt: null };
 // Auto-accept: final = 0.85 * detector confidence + 0.15 * stability (1.0 once steady >= STEADY_MS)
 const AUTO_ACCEPT = 0.80;
 function finalConfidence(det, steadyMs) { return 0.85 * (det || 0) + 0.15 * Math.min(1, steadyMs / STEADY_MS); }
@@ -308,8 +311,9 @@ function showToast(pg, src, q) {
   $('toastAdjust').onclick = () => { clearTimeout(toastTimer); t.classList.add('hidden'); openReview(src, q.map(p => p.slice()), true, pg); };
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.add('hidden'), 1600);
 }
-function openReview(src, q, found, replace) {
-  review.open = true; review.src = src; review.quad = q; review.replace = replace || null;
+function openReview(src, q, found, replace, opt) {
+  review.open = true; review.src = src; review.quad = q; review.replace = replace || null; review.opt = opt || null;
+  $('rvRetake').textContent = opt ? 'Cancel' : 'Retake';
   $('rvEnhance').checked = enhanceOn();
   $('rvTitle').textContent = found ? 'Check the crop' : 'Card not found';
   $('rvSub').textContent = found ? 'Drag the corners if needed, then Use' : 'Drag the corners to the card, or tap Skip crop';
@@ -362,10 +366,13 @@ function closeReview() {
   setTimeout(() => ensureLive('review closed'), 0); // always back to the live camera, never the frozen shot
 }
 $('rvRetake').onclick = () => { closeReview(); state.cooldownUntil = 0; state.armed = true; };
-$('rvNoCrop').onclick = () => { const s = review.src, r = review.replace; closeReview(); savePage(s, null, r); };
+$('rvNoCrop').onclick = () => { const s = review.src, r = review.replace, o = review.opt; closeReview(); savePage(s, null, r, o); };
 $('rvUse').onclick = () => {
-  const s = review.src, r = review.replace, q = CardDetector.order(review.quad.map(p => p.slice())); closeReview(); savePage(s, q, r);
+  const s = review.src, r = review.replace, o = review.opt, q = CardDetector.order(review.quad.map(p => p.slice())); closeReview(); savePage(s, q, r, o);
 };
+// pages are landscape cards: the 90° turn is for a card shot on its side, so a page that already comes out landscape
+// (e.g. a native-camera photo taken with the phone sideways) is not turned again
+function rotFor(c) { const k = rotation(); return (k === 'cw' || k === 'ccw') && c.width > c.height ? 'none' : k; }
 function renderOut(src, quad, enh, maxPx) {
   let out;
   if (quad) out = warp(src, quad, maxPx);
@@ -373,7 +380,7 @@ function renderOut(src, quad, enh, maxPx) {
   const cv = window.cv;
   if (quad && cv && cv.Mat) { try { const m = cv.imread(out), d = CardDetector.deskew(cv, m); cv.imshow(out, d.mat); m.delete(); d.mat.delete(); } catch (err) { console.warn(err); } }
   if (enh && cv && cv.Mat) { try { const m = cv.imread(out), e = CardDetector.enhance(cv, m); cv.imshow(out, e); m.delete(); e.delete(); } catch (err) { console.warn(err); } }
-  return rotateCanvas(out); // upright before compression, thumbnail, queue and upload (so Drive + OCR get the upright page)
+  return rotateCanvas(out, rotFor(out)); // upright before compression, thumbnail, queue and upload (so Drive + OCR get the upright page)
 }
 // Drive name: <JO>-p<page>-<MMDDYY>.jpg, Manila date the page was shot. The server keeps every earlier scan and adds b, c… for a
 // second session the same day; a re-crop in this session sends the same name + session id, so it replaces only its own page.
@@ -382,9 +389,9 @@ function dateTag(d) {
   return m.slice(5, 7) + m.slice(8, 10) + m.slice(2, 4);
 }
 function pageName(jo, page, d) { return `${jo}-p${page}-${dateTag(d)}.jpg`; }
-function savePage(src, quad, replace) {
-  const enh = enhanceOn(), out = renderOut(src, quad, enh, MAX_PX);
-  const image = out.toDataURL('image/jpeg', QUALITY);
+function savePage(src, quad, replace, opt) { // the one save path: live shots, photos and re-crops
+  opt = opt || {}; const enh = enhanceOn(), out = renderOut(src, quad, enh, opt.maxPx || MAX_PX);
+  const image = out.toDataURL('image/jpeg', opt.quality || QUALITY);
   const ts = Math.min(1, THUMB_PX / Math.max(out.width, out.height)), th = document.createElement('canvas');
   th.width = Math.round(out.width * ts); th.height = Math.round(out.height * ts); th.getContext('2d').drawImage(out, 0, 0, th.width, th.height);
   const thumb = th.toDataURL('image/jpeg', 0.6); out.width = out.height = 0;
@@ -392,6 +399,7 @@ function savePage(src, quad, replace) {
   if (replace) p = { jo: replace.jo, page: replace.page, filename: replace.filename, scan: replace.scan }; // re-crop: same file name, replaces it
   else { state.page++; updatePageLabel(); p = { jo: state.jo, page: state.page, filename: pageName(state.jo, state.page), scan: state.scan }; }
   p.thumb = thumb;
+  if (replace && photo.last && photo.last.pg === replace) { photo.last.pg = Object.assign({ quad }, p); setTimeout(renderLast, 0); } // Adjust crop on a Scan JO photo
   queue.add(Object.assign({ image }, p)).catch(e => { console.error(e); note('Could not store the page on this phone: ' + (e.message || e)); });
   return p;
 }
@@ -426,6 +434,74 @@ function warpJS(src, q, maxPx) {
     o[di] = sd[si]; o[di + 1] = sd[si + 1]; o[di + 2] = sd[si + 2]; o[di + 3] = 255; }
   oc.putImageData(od, 0, 0); return out;
 }
+
+/* ---------- Scan JO: the phone's own camera (or gallery) -> auto-crop -> enhance -> save, no review screen ----------
+   The photo goes through the same detector, crop, enhance, rotation and savePage() as a live shot. It saves straight away
+   (live shots save straight away when the outline is clean); the result card offers Adjust crop afterwards. */
+const photo = { busy: false, cont: false, last: null };
+function loadPhoto(file) { // EXIF orientation respected; very large photos (48 MP) scaled to PHOTO_SRC_PX so phones keep memory
+  const draw = (el, w, h) => { const s = Math.min(1, PHOTO_SRC_PX / Math.max(w, h)), c = document.createElement('canvas');
+    c.width = Math.round(w * s); c.height = Math.round(h * s); c.getContext('2d').drawImage(el, 0, 0, c.width, c.height); return c; };
+  const viaImg = () => new Promise((res, rej) => { const u = URL.createObjectURL(file), i = new Image();
+    i.onload = () => { URL.revokeObjectURL(u); try { res(draw(i, i.naturalWidth, i.naturalHeight)); } catch (e) { rej(e); } };
+    i.onerror = () => { URL.revokeObjectURL(u); rej(new Error(/hei[cf]/i.test(file.type + ' ' + file.name) ? 'this phone cannot open HEIC photos here. Use Scan JO (camera) instead' : 'could not open this photo')); };
+    i.src = u; });
+  if (typeof createImageBitmap !== 'function') return viaImg();
+  return createImageBitmap(file, { imageOrientation: 'from-image' }).then(b => { try { return draw(b, b.width, b.height); } finally { b.close && b.close(); } }, viaImg);
+}
+const cvSoon = ms => Promise.race([loadCV().catch(() => null), new Promise(r => setTimeout(() => r(null), ms))]);
+async function autoSave(src) {
+  const cv = $('doCrop').checked ? await cvSoon(15000) : null;
+  let q = null;
+  if (cv && cv.Mat) { try { q = detect(cv, src); } catch (e) { console.warn('detect', e); }
+    if (q) { try { const m = cv.imread(src); q = CardDetector.refineQuad(cv, m, CardDetector.order(q)); m.delete(); } catch (e) { console.warn('refine', e); } } }
+  const quad = q && CardDetector.order(q), pg = savePage(src, quad, null, PHOTO);
+  pg.quad = quad; return pg;
+}
+function photoBusy(on) { photo.busy = on; $('btnScanJO').classList.toggle('busy', on); $('lnkGallery').classList.toggle('dis', on); }
+async function handlePhotos(files) {
+  files = Array.from(files || []).filter(f => /^image\//.test(f.type) || /\.(hei[cf]|jpe?g|png|webp)$/i.test(f.name));
+  if (!files.length) return;
+  const jo = photo.cont && state.jo ? state.jo : normJO($('joInput').value);
+  if (!jo) { $('joInput').focus(); return note('Type the JO number first.'); }
+  if (!photo.cont || state.jo !== jo) { state.jo = jo; state.page = 0; state.scan = jo + '@' + Date.now().toString(36); }
+  photo.cont = false; photoBusy(true);
+  try {
+    for (const f of files) {
+      let src; try { src = await loadPhoto(f); } catch (e) { note('Photo not saved: ' + (e.message || e)); continue; }
+      await new Promise(r => setTimeout(r, 30)); // let "Saving…" paint before the heavy work
+      const pg = await autoSave(src);
+      if (photo.last && photo.last.src !== src) { photo.last.src.width = photo.last.src.height = 0; } // keep only the latest photo for Adjust
+      photo.last = { src, pg }; if (navigator.vibrate) navigator.vibrate(40);
+    }
+    $('joInput').value = ''; // ready for the next JO
+  } catch (e) { console.error(e); note('Could not save the photo: ' + (e.message || e)); }
+  finally { photoBusy(false); renderLast(); }
+}
+function renderLast() {
+  const box = $('lastScan'), L = photo.last; if (!box) return;
+  if (!L) { box.classList.add('hidden'); return; }
+  const pg = L.pg, it = queue.list().find(x => x.scan === pg.scan && x.filename === pg.filename);
+  const st = !it ? 'Saved ✓' : it.state === 'saved' ? 'Saved ✓' : it.state === 'failed' ? 'Upload failed. Open Pending uploads' : it.state === 'mismatch' ? OYPQueue.label(it, isOn()) : (isOn() ? 'Uploading…' : 'Waiting for internet');
+  const cls = !it || it.state === 'saved' ? 'ok' : it.state === 'failed' ? 'err' : it.state === 'mismatch' ? 'mm' : 'busy';
+  box.innerHTML = `<img alt="" src="${esc(pg.thumb)}"><div class="tx"><div class="nm">JO ${esc(pg.jo)} · page ${esc(pg.page)}${pg.quad ? '' : ' <em>(whole photo)</em>'}</div><div class="st ${cls}">${esc(st)}</div>`
+    + `<div class="la"><button type="button" class="alt" data-adj>Adjust crop</button><label for="filePhoto" class="alt" data-more role="button" tabindex="0">+ Page ${esc(state.jo === pg.jo ? state.page + 1 : pg.page + 1)}</label></div></div>`;
+  box.classList.remove('hidden');
+}
+$('lastScan').addEventListener('click', e => {
+  const L = photo.last; if (!L) return;
+  if (e.target.closest('[data-more]')) { if (photo.busy) return e.preventDefault(); photo.cont = true; return; } // next page, same JO
+  if (e.target.closest('[data-adj]') && L.src.width) openReview(L.src, (L.pg.quad || [[0.08, 0.08], [0.92, 0.08], [0.92, 0.92], [0.08, 0.92]]).map(p => p.slice()), !!L.pg.quad, L.pg, PHOTO);
+});
+// the label opens the camera on the same tap; only stop it when there is no JO yet (or a photo is still saving)
+$('btnScanJO').addEventListener('click', e => {
+  photo.cont = false; $('btnScanJO').classList.remove('pulse');
+  if (photo.busy) return e.preventDefault();
+  if (!normJO($('joInput').value)) { e.preventDefault(); $('joInput').focus(); note('Type the JO number first.'); }
+});
+$('btnScanJO').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('btnScanJO').click(); } });
+$('lnkGallery').addEventListener('click', e => { photo.cont = false; if (photo.busy) return e.preventDefault(); if (!normJO($('joInput').value)) { e.preventDefault(); $('joInput').focus(); note('Type the JO number first.'); } });
+['filePhoto', 'fileGallery'].forEach(id => $(id).addEventListener('change', e => { const fs = e.target.files; handlePhotos(fs).finally(() => { e.target.value = ''; }); }));
 
 /* ---------- upload queue (queue.js, IndexedDB) ---------- */
 async function sendPage(it) {
@@ -482,6 +558,7 @@ function renderQueue() {
   document.querySelectorAll('.qbadge').forEach(b => { b.textContent = n; b.classList.toggle('hidden', !n); b.classList.toggle('bad', !!c.failed); });
   const qs = $('qStatus'); qs.textContent = c.total ? txt : ''; qs.className = 'qstatus' + (c.failed ? ' err' : c.pending ? ' busy' : ' ok');
   const ss = $('scanStatus'); ss.querySelector('span').textContent = txt; ss.className = 'sstat' + (c.failed ? ' err' : c.pending ? ' busy' : ' ok');
+  renderLast();
   const mine = queue.list().filter(x => x.scan && x.scan === state.scan).reverse();
   if (swHold) swDirty = true; else $('pages').innerHTML = mine.map(it => rowHtml(it, false)).join(''); // not while a row is being swiped / asked about
   if ($('queueView').classList.contains('hidden')) return;
@@ -553,7 +630,7 @@ function askDelete(it) {
 window.addEventListener('online', () => { queue.wake(); renderQueue(); });
 window.addEventListener('offline', renderQueue);
 queue.load().then(() => queue.wake()).catch(e => { console.error('queue', e); note('This phone could not open its upload store: ' + (e.message || e)); });
-window.__scan = { swipeAxis, swipePast, rotateCanvas, rotation, state, review, openReview, capture, finalConfidence, AUTO_ACCEPT, queue, ensureLive };
+window.__scan = { handlePhotos, loadPhoto, photo, rotFor, swipeAxis, swipePast, rotateCanvas, rotation, state, review, openReview, capture, finalConfidence, AUTO_ACCEPT, queue, ensureLive };
 })();
 
 // owner: stone background only while the start screen is shown

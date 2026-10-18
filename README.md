@@ -25,6 +25,9 @@ Open the page on the iPhone, tap Settings, paste the Web app URL and the token, 
 `https://YOUR-SITE/?api=WEB_APP_URL&token=SECRET`
 
 ## 4. Use it
+**Scan JO (default):** type the JO number, tap the big **Scan JO** button. The phone's own camera opens (full resolution, real autofocus). After the shot the page is found, cropped, straightened, enhanced (paper to white, contrast, mild sharpen) and saved straight away at 2400 px / JPEG 0.9: no review screen. The card under the button shows Saving… → Uploading… → Saved ✓, with **Adjust crop** (fix the corners; it replaces that page) and **+ Page 2** (next page of the same JO). The JO box clears, ready for the next JO. **Upload from gallery** (several photos = pages 1, 2, 3… of the typed JO) and **Live scan** (the old in-page camera, below) are the small links under it. Add to Home Screen gives a full-screen app icon (manifest.webmanifest).
+
+**Live scan:**
 1. Type the JO number (`26-001`, `JO 26-001` and `26,001` are all accepted), then tap **SCAN**. Allow camera access once.
 2. Lay the card on a **dark surface** and tap the big gold shutter. If the card outline is clean the page is saved straight away (tap **Adjust** on the little preview to fix the crop); otherwise the corner screen opens: drag the corners, then **Use**, **Skip crop** or **Retake**. **Auto-snap** is off by default; turn it on to snap by itself when the card is steady (the phone remembers the choice).
 3. Pages are turned **90° clockwise** by default (cards are shot on their side), so Drive gets an upright landscape page. Change it in Menu → Scanner settings → Rotate pages.
