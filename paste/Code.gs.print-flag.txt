@@ -1,0 +1,20 @@
+Code.gs — the page-1 sticker line. A new JO scan queues two stickers: a jo_card and a jewelry_tag.
+The phone sends printJo and printTag (JSON booleans) on the page-1 scan only.
+false skips that sticker. true queues it. A missing field still queues, so a phone
+that has not loaded this scanner yet keeps today's jo_card and also gets the new tag.
+Ctrl+F the FIND line. It is the line added by paste/Code.gs.print.patch.txt in the staff repo. It matches once.
+
+FIND
+    try { if ((parseInt(req.page, 10) || 1) === 1 && typeof printEnqueue_ === 'function') printEnqueue_(jo, 'jo_card', 'scanner', {}); } catch (e) {}
+
+REPLACE WITH
+    try { if ((parseInt(req.page, 10) || 1) === 1 && typeof printEnqueue_ === 'function') { if (req.printJo !== false) printEnqueue_(jo, 'jo_card', 'scanner', {}); if (req.printTag !== false) printEnqueue_(jo, 'jewelry_tag', 'scanner', {}); } } catch (e) {}
+
+Names are printJo and printTag, the same fields the scanner posts. Do not look for print.
+Later pages never queued a sticker (the page === 1 check). Do not change that.
+Deploy → Manage deployments → Edit → New version so the same /exec URL picks this up.
+print.js on the phone still queues a jo_card after any page-1 upload it can see, and it
+does not read these flags. The scanner posts that upload with the unwrapped fetch when
+either switch is off, so the hook cannot add the sticker that was turned off. The tag
+is queued only by this line (print.js adds a jewelry_tag on a final prod move, not on a scan).
+Both halves are required for "off" to mean nothing is written to the PrintQueue.

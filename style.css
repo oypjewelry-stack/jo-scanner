@@ -258,5 +258,31 @@ select.mid{width:100%;font-size:16px;padding:14px;border:1px solid #ccc;border-r
 .lastscan .tx{flex:1;min-width:0}
 .lastscan .nm{font-family:var(--head);font-weight:500;font-size:16px}.lastscan .nm em{font-family:var(--body);font-style:normal;font-size:13px;color:#a06b00}
 .lastscan .st{font-family:var(--label);font-weight:500;font-size:13px;margin-top:2px}.lastscan .st.busy{color:#a06b00}
-.lastscan .la{display:flex;gap:4px;margin:2px 0 0 -8px}.lastscan .la .alt{min-height:36px;font-size:13px}
+.lastscan .la{display:flex;gap:4px;margin:2px 0 0 -8px;align-items:center;flex-wrap:wrap}.lastscan .la .alt{min-height:36px;font-size:13px}
+/* JO sticker / Jewelry tag: same settog as the back office (settings.css) */
+.stickrow{display:flex;flex-wrap:wrap;justify-content:center;gap:8px 10px;margin:0 auto 2px}
+.settog{display:inline-flex;align-items:center;gap:8px;min-height:44px;font-family:var(--label);font-weight:500;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#111;cursor:pointer}
+.settog input{width:20px;height:20px;accent-color:#111;margin:0}
+.settog b{font-weight:500}
+#startView .starttog{background:rgba(255,255,255,.92);border-radius:12px;padding:0 14px}
+#capView{padding:16px 16px 28px;max-width:560px;margin:0 auto}
+#capView .jobar{position:relative;justify-content:center;text-align:center;margin-bottom:2px}
+#capView .jobar strong{font-weight:700}
+#capView #capCount{position:absolute;right:0;top:50%;transform:translateY(-50%);font-family:var(--label);font-weight:500;font-size:13px}
+#capView .stickrow{margin-bottom:0}
+.nostick{font-family:var(--label);font-weight:500;font-size:13px;letter-spacing:.04em;text-transform:uppercase;color:#a06b00;margin:0 0 8px;text-align:center}
+.strip{list-style:none;display:flex;gap:10px;overflow-x:auto;padding:8px 2px 4px;-webkit-overflow-scrolling:touch}
+.strip li{flex:0 0 auto;width:92px;display:flex;flex-direction:column;align-items:center;gap:2px}
+.strip img,.strip .ph{width:84px;height:108px;object-fit:contain;background:#f4f4f4;border:1px solid #eee;border-radius:10px}
+.strip .ph{display:block;background:repeating-linear-gradient(-45deg,#f7f7f7,#f7f7f7 6px,#f1f1f1 6px,#f1f1f1 12px)}
+.strip .pn{font-family:var(--label);font-weight:500;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:#555}
+.strip .st{font-family:var(--label);font-weight:500;font-size:12px;text-align:center}
+.strip .retry{min-height:32px;margin-top:2px;padding:0 10px;border:1px solid #111;background:#fff;border-radius:8px;font-family:var(--label);font-weight:500;font-size:12px}
+.capprog{text-align:center;min-height:1.2em;margin:8px 0 0;font-family:var(--label);font-weight:500;font-size:14px}
+.capprog.ok{color:#2a7a2a}.capprog.busy{color:#a06b00}.capprog.err{color:#b00020}
+#btnCapRetry{width:100%;margin-top:8px}
+#capView .scanjo.next{min-height:128px;margin-top:14px;font-size:28px}
+#btnCapDone{display:block;width:fit-content;width:-webkit-fit-content;margin:14px auto 0;min-height:48px;background:#fff;color:#111;border:1px solid #111;border-radius:16px;font-family:'Libre Bodoni',serif;font-weight:500;font-size:20px;letter-spacing:.04em;padding:12px 36px}
+#btnCapDone:disabled{opacity:.45}
+#capView .lastscan{margin-top:8px}
 @media (min-width:700px){#startView{max-width:560px;margin-left:auto;margin-right:auto}}

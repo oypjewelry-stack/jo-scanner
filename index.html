@@ -7,7 +7,7 @@
 <title>OYP Card Scanner</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Libre+Bodoni:wght@400;500;600&family=Bodoni+Moda:opsz,wght@6..96,400;6..96,500&family=Inter:wght@500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=20261018b">
+<link rel="stylesheet" href="style.css?v=20261021b">
 <link rel="icon" type="image/png" href="favicon.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 </head><body>
@@ -18,6 +18,12 @@
 <section id="startView" class="view">
   <h1>Scan a job order card</h1>
   <p class="muted help">Type the JO number, then tap Scan JO.</p>
+  <div class="stickrow">
+    <label class="settog starttog"><input id="printJo" data-sticker="jo" type="checkbox" checked> <span>JO sticker <b data-sticker-val="jo">On</b></span></label>
+    <label class="settog starttog"><input id="printTag" data-sticker="tag" type="checkbox" checked> <span>Jewelry tag <b data-sticker-val="tag">On</b></span></label>
+  </div>
+  <p class="nostick hidden" data-nostick="jo">No JO sticker</p>
+  <p class="nostick hidden" data-nostick="tag">No jewelry tag</p>
   <div class="jorow">
     <label for="joInput" class="jopre" aria-hidden="true">JO</label>
     <input id="joInput" aria-label="JO number" class="big" inputmode="text" autocomplete="off" autocapitalize="characters" placeholder="26-001">
@@ -27,11 +33,26 @@
   <input id="filePhoto" class="vh" type="file" accept="image/*" capture="environment" tabindex="-1" aria-hidden="true">
   <input id="fileGallery" class="vh" type="file" accept="image/*" multiple tabindex="-1" aria-hidden="true">
   <label id="btnScanJO" for="filePhoto" class="scanjo" role="button" tabindex="0"><svg viewBox="0 0 24 24" width="44" height="44" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5A1.5 1.5 0 0 1 4.5 7h2.8l1.6-2.2h6.2L16.7 7h2.8A1.5 1.5 0 0 1 21 8.5v9A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5z"/><circle cx="12" cy="12.8" r="3.6"/></svg><span class="sj">Scan JO</span><span class="sjbusy"><span class="spin"></span> Saving…</span></label>
-  <div id="lastScan" class="lastscan hidden"></div>
   <div class="altrow"><label id="lnkGallery" for="fileGallery" class="alt" role="button" tabindex="0">Upload from gallery</label><span aria-hidden="true">·</span><button id="btnStart" class="alt" type="button">Live scan</button></div>
   <button id="btnQueue" class="qbtn" type="button">Pending uploads <span class="qbadge hidden"></span></button>
   <p id="qStatus" class="qstatus"></p>
   <p id="apiWarn" class="warn hidden">No backend URL set yet. Open Menu → Scanner settings to add it (pages are kept on this phone until then).</p>
+</section>
+
+<section id="capView" class="view hidden">
+  <div class="jobar"><strong id="capJo"></strong><span id="capCount" class="muted"></span></div>
+  <div class="stickrow">
+    <label class="settog"><input id="printJoCap" data-sticker="jo" type="checkbox" checked> <span>JO sticker <b data-sticker-val="jo">On</b></span></label>
+    <label class="settog"><input id="printTagCap" data-sticker="tag" type="checkbox" checked> <span>Jewelry tag <b data-sticker-val="tag">On</b></span></label>
+  </div>
+  <p class="nostick hidden" data-nostick="jo">No JO sticker</p>
+  <p class="nostick hidden" data-nostick="tag">No jewelry tag</p>
+  <ul id="capStrip" class="strip"></ul>
+  <p id="capProg" class="capprog"></p>
+  <button id="btnCapRetry" class="ghost hidden" type="button">Retry failed</button>
+  <div id="lastScan" class="lastscan hidden"></div>
+  <label id="btnNextPage" for="filePhoto" class="scanjo next" role="button" tabindex="0"><span class="sj">Next page</span><span class="sjbusy"><span class="spin"></span> Saving…</span></label>
+  <button id="btnCapDone" class="primary" type="button">Done</button>
 </section>
 
 <section id="scanView" class="view hidden">
@@ -55,7 +76,7 @@
 <section id="queueView" class="view hidden">
   <div class="qhead"><button id="btnQBack" class="back" type="button" aria-label="Back">‹ Back</button><h1>Pending uploads</h1></div>
   <p id="qSummary" class="qsum"></p>
-  <p class="muted qhelp">Every page is stored on this phone first and uploads by itself, one at a time, even after you tap Done or close the page.</p>
+  <p class="muted qhelp">Every page is stored on this phone first and uploads by itself in the background, even after you tap Done or close the page.</p>
   <button id="btnRetryFailed" class="ghost hidden" type="button">Retry all failed</button>
   <ul id="qList" class="pages qlist"></ul>
 </section>
@@ -84,9 +105,10 @@
 </div>
 <canvas id="work" class="hidden"></canvas>
 <div id="toast" class="toast hidden"><img id="toastImg" alt=""><span>Saved</span><button id="toastAdjust" class="ghost">Adjust</button></div>
-<script src="queue.js?v=20261018b"></script>
+<script>window.__oypNativeFetch = window.fetch.bind(window);</script>
+<script src="queue.js?v=20261021b"></script>
 <script src="https://oypjewelry.com/nav.js?v=3" async></script>
-<script src="detector.js?v=20261018b"></script>
-<script src="app.js?v=20261018b"></script>
-<script src="voice.js?v=20261018b"></script>
+<script src="detector.js?v=20261021b"></script>
+<script src="app.js?v=20261021b"></script>
+<script src="voice.js?v=20261021b"></script>
 </body></html>
