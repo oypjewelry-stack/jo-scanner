@@ -27,6 +27,14 @@ function normJO(s) {
   return m ? m[1] + '-' + m[2] + (m[3] || '') : String(s || '').trim().toUpperCase().replace(/^J\.?O\.?\s*#?\s*/, '');
 }
 window.normJO = normJO;
+function realJO(s) { // a JO this phone will file. 'OCR' is the hold while the number is being read, not a number.
+  const n = normJO(s);
+  return /^\d{2}-\d{3,4}[A-Z]?$/.test(n) ? n : '';
+}
+function joFromRead(r) { // readJo_ is confident only when it found one number and did not mark the crop low
+  if (!r || r.ok === false || r.low) return '';
+  return realJO(r.jo);
+}
 if (typeof module !== 'undefined' && module.exports) module.exports.normJO = normJO;
 
 /* ---------- settings ---------- */
@@ -425,14 +433,22 @@ async function savePage(src, quad, replace, opt) { // the one save path: live sh
   const thumb = th.toDataURL('image/jpeg', 0.6);
   const image = await canvasJpeg(out, opt.quality || QUALITY); out.width = out.height = 0;
   let p;
-  if (replace) p = { jo: replace.jo, page: replace.page, filename: replace.filename, scan: replace.scan }; // re-crop: same file name, replaces it
-  else { state.page++; updatePageLabel(); p = { jo: state.jo, page: state.page, filename: pageName(state.jo, state.page), scan: state.scan }; cap.pages.push(p); cap.saving = false; }
+  const shot = replace && replace.shot ? replace.shot : new Date();
+  if (replace) p = { jo: replace.jo, page: replace.page, filename: replace.filename, scan: replace.scan, shot, held: !!replace.held }; // re-crop: same file name, replaces it
+  else {
+    state.page++; updatePageLabel();
+    p = { jo: state.jo, page: state.page, filename: pageName(state.jo, state.page, shot), scan: state.scan, shot };
+    if (state.jo === 'OCR') p.held = true; // number still unknown: keep the photo on this screen
+    cap.pages.push(p); cap.saving = false;
+  }
   p.thumb = thumb; p.quad = quad || null;
+  if (p.held) p.image = image;
   if (replace && photo.last && photo.last.pg === replace) { // Adjust crop on a Scan JO photo
     photo.last.pg = Object.assign({ quad }, p);
     const i = cap.pages.findIndex(x => x === replace || (x.scan === replace.scan && x.filename === replace.filename && x.page === replace.page));
     if (i >= 0) cap.pages[i] = photo.last.pg;
   }
+  if (p.held) { renderCapture(); return p; }
   queue.add(Object.assign({ image }, p)).catch(e => { console.error(e); note('Could not store the page on this phone: ' + (e.message || e)); });
   renderCapture();
   return p;
@@ -473,7 +489,7 @@ function warpJS(src, q, maxPx) {
    The photo goes through the same detector, crop, enhance, rotation and savePage() as a live shot. It saves straight away
    (live shots save straight away when the outline is clean); the result card offers Adjust crop afterwards. */
 const photo = { busy: false, cont: false, last: null };
-const cap = { pages: [], saving: false }; // pages of the capture currently on screen
+const cap = { pages: [], saving: false, asking: false, reading: false }; // pages of the capture currently on screen
 
 /* JO sticker and Jewelry tag: both on by default, each remembered on this phone.
    Page 1 sends printJo and printTag. Off posts with the original fetch so print.js
@@ -566,13 +582,101 @@ function photoBusy(on) {
   const n = $('btnNextPage'); if (n) n.classList.toggle('busy', on);
   const d = $('btnCapDone'); if (d) d.disabled = on;
 }
+function zonesNow() {
+  try {
+    if (window.OYPZones && typeof OYPZones.zones === 'function') {
+      const z = OYPZones.zones();
+      if (z && z.some(x => x && x.id === 'jo')) return z;
+    }
+  } catch (e) {}
+  try { const z = JSON.parse(localStorage.getItem('oypScanZones') || '[]'); if (Array.isArray(z)) return z; } catch (e) {}
+  return [];
+}
+function waitZones() {
+  if (zonesNow().some(z => z && z.id === 'jo')) return Promise.resolve();
+  return new Promise(resolve => {
+    let done = false;
+    const finish = () => { if (done) return; done = true; resolve(); };
+    window.addEventListener('oyp-zones-ready', finish, { once: true });
+    setTimeout(finish, 1200);
+  });
+}
+function cropZoneB64(dataUrl, zone) { // the JO-number box, as a JPEG. Same crop the zone script sends.
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const sw = img.naturalWidth || img.width, sh = img.naturalHeight || img.height;
+        let x = Math.round(zone.x * sw), y = Math.round(zone.y * sh), w = Math.round(zone.w * sw), h = Math.round(zone.h * sh);
+        if (x < 0) x = 0; if (y < 0) y = 0;
+        if (x + w > sw) w = sw - x; if (y + h > sh) h = sh - y;
+        if (w < 8 || h < 8) return resolve('');
+        const c = document.createElement('canvas'); c.width = w; c.height = h;
+        c.getContext('2d').drawImage(img, x, y, w, h, 0, 0, w, h);
+        const url = c.toDataURL('image/jpeg', 0.85), i = url.indexOf(',');
+        resolve(i >= 0 ? url.slice(i + 1) : '');
+      } catch (e) { resolve(''); }
+    };
+    img.onerror = () => resolve('');
+    img.src = String(dataUrl || '').indexOf('data:') === 0 ? dataUrl : 'data:image/jpeg;base64,' + dataUrl;
+  });
+}
+async function ocrJoNumber(dataUrl) { // readJo on the JO-number zone only. A typed number never comes through here.
+  await waitZones();
+  const zone = zonesNow().find(z => z && z.id === 'jo');
+  if (!zone) return '';
+  const b64 = await cropZoneB64(dataUrl, zone);
+  if (!b64) return '';
+  const res = await (window.__oypNativeFetch || fetch)(api(), { method: 'POST', redirect: 'follow',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ op: 'readJo', token: localStorage.getItem(LS.token) || '', ocrBase64: b64 }) });
+  let r = null; try { r = await res.json(); } catch (e) { r = null; }
+  return joFromRead(r);
+}
+function fileHeld(jo) { // the number is known: rename the kept pages and upload them as that JO
+  jo = realJO(jo); if (!jo) return false;
+  const stamp = String(state.scan || '').split('@')[1] || Date.now().toString(36);
+  state.jo = jo; state.scan = jo + '@' + stamp;
+  cap.asking = false; cap.reading = false;
+  const start = $('joInput'); if (start) start.value = jo;
+  const ask = $('capJoInput'); if (ask) ask.value = '';
+  cap.pages.forEach(p => {
+    if (!p.held) return;
+    const image = p.image;
+    p.jo = jo; p.scan = state.scan; p.filename = pageName(jo, p.page, p.shot); p.held = false; delete p.image;
+    if (image) queue.add(Object.assign({ image }, p)).catch(e => { console.error(e); note('Could not store the page on this phone: ' + (e.message || e)); });
+  });
+  if (photo.last && photo.last.pg) { photo.last.pg.jo = jo; photo.last.pg.scan = state.scan; photo.last.pg.filename = pageName(jo, photo.last.pg.page, photo.last.pg.shot); photo.last.pg.held = false; }
+  renderCapture();
+  return true;
+}
+function askForJo() { // the photo is already on the capture screen; she types the number once
+  cap.asking = true; cap.reading = false; renderCapture();
+  const input = $('capJoInput');
+  if (input) setTimeout(() => { try { input.focus(); input.select(); } catch (e) {} }, 30);
+}
+async function readHeldJo() {
+  if (cap.reading || cap.asking || realJO(state.jo)) return;
+  const page = cap.pages.find(p => p.held && p.image && (parseInt(p.page, 10) || 1) === 1);
+  if (!page) return;
+  cap.reading = true; renderCapture();
+  let jo = '';
+  try { jo = await ocrJoNumber(page.image); } catch (e) { console.warn('readJo', e); }
+  cap.reading = false;
+  if (realJO(state.jo)) return;
+  if (jo) fileHeld(jo); else askForJo();
+}
 async function handlePhotos(files) {
   files = Array.from(files || []).filter(f => /^image\//.test(f.type) || /\.(hei[cf]|jpe?g|png|webp)$/i.test(f.name));
   if (!files.length) return;
-  const jo = photo.cont && state.jo ? state.jo : normJO($('joInput').value);
-  if (!jo) { $('joInput').focus(); return note('Type the JO number first.'); }
-  const fresh = !photo.cont || state.jo !== jo;
-  if (fresh) { state.jo = jo; state.page = 0; state.scan = jo + '@' + Date.now().toString(36); cap.pages = []; }
+  const typed = realJO($('joInput').value); // a number already in the box wins over the card
+  const sameCard = !!(photo.cont && (realJO(state.jo) || state.jo === 'OCR'));
+  const fresh = !sameCard;
+  if (fresh) {
+    state.jo = typed || 'OCR'; state.page = 0; state.scan = state.jo + '@' + Date.now().toString(36); cap.pages = [];
+    cap.asking = false; cap.reading = false;
+    const ask = $('capJoInput'); if (ask) ask.value = '';
+  } else if (typed && state.jo === 'OCR') fileHeld(typed);
   photo.cont = false; // consumed; Next page sets it again on the tap that opens the camera
   showView('capView'); photoBusy(true);
   let saved = 0;
@@ -587,10 +691,11 @@ async function handlePhotos(files) {
       saved++;
       if (photo.last && photo.last.src !== src) { photo.last.src.width = photo.last.src.height = 0; } // keep only the latest photo for Adjust
       photo.last = { src, pg }; if (navigator.vibrate) navigator.vibrate(40);
-      renderCapture(); // this page is already uploading; stay here for the next one
+      renderCapture(); // this page is already uploading, or kept here until the JO number is known
     }
   } catch (e) { console.error(e); note('Could not save the photo: ' + (e.message || e)); }
   finally { cap.saving = false; photoBusy(false); if (!saved && fresh && !cap.pages.length) showView('startView'); renderCapture(); }
+  if (state.jo === 'OCR') readHeldJo();
 }
 function capMatch(pg) {
   const all = queue.list();
@@ -598,7 +703,7 @@ function capMatch(pg) {
 }
 function capState(pg) {
   const it = capMatch(pg);
-  if (!it) return pg.jo === 'OCR' ? { cls: 'busy', t: 'Reading…' } : { cls: 'busy', t: 'Waiting' };
+  if (!it) return (pg.held && cap.asking) ? { cls: 'mm', t: 'Type JO' } : (pg.held || pg.jo === 'OCR') ? { cls: 'busy', t: 'Reading…' } : { cls: 'busy', t: 'Waiting' };
   if (it.state === 'uploading') return { cls: 'busy', t: 'Uploading…' };
   if (it.state === 'waiting') return { cls: 'queued', t: isOn() ? (it.error ? 'Retrying' : 'Waiting') : 'Offline' };
   if (it.state === 'saved') return { cls: 'ok', t: 'Saved' };
@@ -609,9 +714,10 @@ function capState(pg) {
 function renderCapture() {
   const strip = $('capStrip'), box = $('lastScan');
   if ($('capJo')) {
-    const known = state.jo && state.jo !== 'OCR';
-    $('capJo').textContent = known ? 'JO ' + state.jo : ((cap.pages.length || cap.saving) ? 'Reading the JO number…' : '');
+    const known = realJO(state.jo);
+    $('capJo').textContent = cap.asking ? 'Type the JO number' : known ? 'JO ' + known : ((cap.pages.length || cap.saving || cap.reading) ? 'Reading the JO number…' : '');
   }
+  const askForm = $('capJoForm'); if (askForm) askForm.classList.toggle('hidden', !cap.asking);
   if ($('capCount')) $('capCount').textContent = cap.pages.length ? (cap.pages.length === 1 ? '1 page' : cap.pages.length + ' pages') : '';
   if (strip) {
     const tiles = cap.pages.map(pg => {
@@ -626,8 +732,9 @@ function renderCapture() {
   const failed = states.filter(s => s.retry).length;
   const prog = $('capProg');
   if (prog) {
-    prog.className = 'capprog' + (failed ? ' err' : pending ? ' busy' : cap.pages.length ? ' ok' : '');
-    prog.textContent = !cap.pages.length && !cap.saving ? '' : failed ? (failed + (failed > 1 ? ' pages failed' : ' page failed')) : pending ? (pending === 1 ? '1 page still uploading' : pending + ' pages still uploading') : 'All saved';
+    const held = cap.pages.some(p => p.held);
+    prog.className = 'capprog' + (failed ? ' err' : (pending || held) ? ' busy' : cap.pages.length ? ' ok' : '');
+    prog.textContent = held ? (cap.asking ? 'This photo stays here until you tap Save.' : 'Reading the JO number…') : !cap.pages.length && !cap.saving ? '' : failed ? (failed + (failed > 1 ? ' pages failed' : ' page failed')) : pending ? (pending === 1 ? '1 page still uploading' : pending + ' pages still uploading') : 'All saved';
   }
   const retryAll = $('btnCapRetry'); if (retryAll) retryAll.classList.toggle('hidden', !failed);
   if (box) {
@@ -638,7 +745,8 @@ function renderCapture() {
   applySticker();
 }
 function finishCapture() {
-  if (photo.busy) return; // the page being saved still goes into the queue when it finishes
+  if (photo.busy || cap.reading) return; // the page being saved still goes into the queue when it finishes
+  if (cap.pages.some(p => p.held)) return askForJo(); // the photo stays; she types the number here
   photo.cont = false;
   const c = queue.counts();
   cap.pages = []; cap.saving = false; photo.last = null;
@@ -652,20 +760,25 @@ $('lastScan').addEventListener('click', e => {
   if (e.target.closest('[data-adj]') && L.src && L.src.width) openReview(L.src, (L.pg.quad || [[0.08, 0.08], [0.92, 0.08], [0.92, 0.92], [0.08, 0.92]]).map(p => p.slice()), !!L.pg.quad, L.pg, PHOTO);
 });
 $('btnNextPage').addEventListener('click', e => {
-  if (photo.busy) { e.preventDefault(); return; }
+  if (photo.busy || cap.reading) { e.preventDefault(); return; }
   photo.cont = true; // one tap opens the camera; no navigation, same JO
 });
 $('btnNextPage').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('btnNextPage').click(); } });
 $('btnCapDone').onclick = finishCapture;
+$('capJoForm').addEventListener('submit', e => {
+  e.preventDefault();
+  const jo = realJO($('capJoInput').value);
+  if (!jo) { $('capJoInput').focus(); return; }
+  fileHeld(jo);
+});
 $('btnCapRetry').onclick = () => { cap.pages.forEach(pg => { const s = capState(pg); if (s.retry) queue.retry(s.retry); }); };
-// the label opens the camera on the same tap; only stop it when there is no JO yet (or a photo is still saving)
+// Scan JO and Upload from gallery always open. An empty box is read from the card after the photo.
 $('btnScanJO').addEventListener('click', e => {
   photo.cont = false; $('btnScanJO').classList.remove('pulse');
-  if (photo.busy) return e.preventDefault();
-  if (!normJO($('joInput').value)) { e.preventDefault(); $('joInput').focus(); note('Type the JO number first.'); }
+  if (photo.busy) e.preventDefault();
 });
 $('btnScanJO').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('btnScanJO').click(); } });
-$('lnkGallery').addEventListener('click', e => { photo.cont = false; if (photo.busy) return e.preventDefault(); if (!normJO($('joInput').value)) { e.preventDefault(); $('joInput').focus(); note('Type the JO number first.'); } });
+$('lnkGallery').addEventListener('click', e => { photo.cont = false; if (photo.busy) e.preventDefault(); });
 ['filePhoto', 'fileGallery'].forEach(id => $(id).addEventListener('change', e => { const fs = e.target.files; handlePhotos(fs).finally(() => { e.target.value = ''; }); }));
 
 /* ---------- upload queue (queue.js, IndexedDB) ---------- */
@@ -817,7 +930,11 @@ function askDelete(it) {
 window.addEventListener('online', () => { queue.wake(); renderQueue(); });
 window.addEventListener('offline', renderQueue);
 queue.load().then(() => queue.wake()).catch(e => { console.error('queue', e); note('This phone could not open its upload store: ' + (e.message || e)); });
-window.__scan = { handlePhotos, loadPhoto, photo, cap, rotFor, swipeAxis, swipePast, rotateCanvas, rotation, state, review, openReview, capture, finalConfidence, AUTO_ACCEPT, queue, ensureLive, stickerOn, setSticker, scanPayload, renderCapture, finishCapture };
+const SCAN_HELP = "Tap to scan the JO and choose which sticker to print. If the JO has no number or it's hard to read, type it in the box.";
+function scanHelp() { const h = document.querySelector('#startView .help'); if (h && h.textContent !== SCAN_HELP) h.textContent = SCAN_HELP; }
+scanHelp();
+window.addEventListener('oyp-zones-ready', () => setTimeout(scanHelp, 50));
+window.__scan = { handlePhotos, loadPhoto, photo, cap, rotFor, swipeAxis, swipePast, rotateCanvas, rotation, state, review, openReview, capture, finalConfidence, AUTO_ACCEPT, queue, ensureLive, stickerOn, setSticker, scanPayload, renderCapture, finishCapture, realJO, joFromRead, fileHeld };
 })();
 
 // owner: stone background only while the start screen is shown

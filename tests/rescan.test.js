@@ -18,7 +18,7 @@ const fn = new Function(src.match(/function dateTag\(d\) \{[\s\S]*?\n\}/)[0] + '
 ok(fn.pageName('26-001', 1, new Date('2026-10-17T03:00:00Z')) === '26-001-p1-101726.jpg', 'scanner names pages <JO>-p<N>-MMDDYY.jpg');
 ok(fn.dateTag(new Date('2026-10-17T17:30:00Z')) === '101826', 'date tag is Manila time (01:30 Oct 18 PHT -> 101826)');
 ok(fn.dateTag(new Date('2026-12-31T15:59:00Z')) === '123126' && fn.dateTag(new Date('2026-12-31T16:00:00Z')) === '010127', 'year boundary in Manila time');
-ok(/scan: it\.scan/.test(src) && /filename: pageName\(state\.jo, state\.page\)/.test(src), 'upload sends the session id; new pages use pageName');
+ok(/scan: it\.scan/.test(src) && /filename: pageName\(state\.jo, state\.page, shot\)/.test(src), 'upload sends the session id; new pages use pageName');
 ok(Q.keyOf('26-001', '26-001-p1-101726.jpg', 'A') !== Q.keyOf('26-001', '26-001-p1-101726.jpg', 'B') && Q.keyOf('26-001', 'x', 'A') === Q.keyOf('26-001', 'x', 'A'), 'phone queue: same page from two sessions never overwrite each other, re-crop still does');
 
 // --- backend naming ---
