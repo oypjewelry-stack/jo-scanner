@@ -53,10 +53,21 @@ const NAV_FALLBACK = { SITE: STAFF_URL, STAFF: STAFF_URL, NAV: {
   admin: [['dashboard', 'Dashboard'], ['review', 'To review'], ['estimate', 'Cost estimator'], ['jos', 'Inventory'], ['scanner', 'Scanner'], ['inventory', 'Materials'], ['prices', 'Material prices'], ['customers', 'Customers'], ['shop', 'Shop listings'], ['payments', 'Quotes / payments'], ['settings', 'Settings']], // Staff logins: now Settings › Staff accounts
   production_manager: [['dashboard', 'Dashboard'], ['review', 'To review'], ['estimate', 'Cost estimator'], ['jos', 'Inventory'], ['scanner', 'Scanner'], ['production', 'Production'], ['inventory', 'Materials'], ['prices', 'Material prices']],
   accounting: [['dashboard', 'Dashboard'], ['payments', 'Payments'], ['quotes', 'Quotes'], ['balances', 'Balances'], ['clients', 'Clients (billing)'], ['jos', 'Inventory (view)']] } };
+function printerRow() { // the shared nav.js row: plain text under Settings, green/red dot. Not a header button.
+  const N = window.OYPNav;
+  if (N && typeof N.printerItemHtml === 'function') return N.printerItemHtml();
+  return '<a data-oyp-printer="1" role="button" tabindex="0" title="Printer not connected">Printer<span class="oyp-pr-dot" aria-hidden="true"></span></a>';
+}
 function buildMenu() {
   const N = window.OYPNav || NAV_FALLBACK, role = localStorage.getItem(LS.role), items = N.NAV[role], site = N.STAFF || STAFF_URL, c = queue.counts();
-  let h = items ? items.map(([k, t]) => k === 'scanner' ? `<a href="#" data-m="scanner" class="on">${esc(t)}</a>` : `<a href="${site}#/${k}">${esc(t)}</a>`).join('')
-    : `<a href="${site}">${role === 'staff' ? 'Home' : 'Back office'}</a>`;
+  let h = '', placed = false;
+  if (items) h = items.map(([k, t]) => {
+    const a = k === 'scanner' ? `<a href="#" data-m="scanner" class="on">${esc(t)}</a>` : `<a href="${site}#/${k}">${esc(t)}</a>`;
+    if (k === 'settings') { placed = true; return a + printerRow(); }
+    return a;
+  }).join('');
+  else h = `<a href="${site}">${role === 'staff' ? 'Home' : 'Back office'}</a>`;
+  if (!placed) h += printerRow(); // same place nav.js uses when the role has no Settings row
   h += `<hr><a href="#" data-m="queue">Pending uploads${c.pending + c.failed ? ` <span class="badge">${c.pending + c.failed}</span>` : ''}</a><a href="#" data-m="settings">Scanner settings</a>`;
   if (role) h += `<a href="${site}#/logout" data-m="logout">Log out</a>`;
   else h += `<p class="mnote">Open the scanner from the back-office menu once to see your full menu here.</p>`;
