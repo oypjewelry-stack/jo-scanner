@@ -34,11 +34,13 @@ ok(/\.settog\{display:inline-flex/.test(css) && /text-transform:uppercase/.test(
 ok(/class="pill sm"/.test(html) && /id="btnNextPage"/.test(html) && /class="pill sm outline"/.test(html) && /class="capacts"/.test(html), 'Next page and Done are staff pills in one row');
 ok(/#btnNextPage,#btnCapDone\{[^}]*height:34px/.test(css) && /font-size:14px/.test(css) && /font-weight:500/.test(css) && /Libre Bodoni/.test(css), 'those pills are 34px, 14px Libre Bodoni 500');
 ok(/printerItemHtml/.test(src) && /data-oyp-printer/.test(src), 'the menu uses the shared nav.js Printer row');
+ok(/OFFICE_NAV/.test(src) && /N\.ordered\(user\)/.test(src) && /consignment/.test(src) && /production/.test(src), 'the menu uses the full staff list, including saved order');
+ok(/<hr><a href="#" data-m="queue">/.test(src) && /data-m="settings">Scanner settings/.test(src), 'Pending uploads and Scanner settings stay below the divider');
 ok(!/id="oypPrBtn"|id="printChip"/.test(html) && /header\.top #printChip,header\.top \.oyp-pr-slot\{display:none!important\}/.test(css), 'the scanner header has no printer button of its own');
 ok(/req\.printJo !== false/.test(paste) && /req\.printTag !== false/.test(paste) && /jo_card/.test(paste) && /jewelry_tag/.test(paste), 'paste queues jo_card and jewelry_tag unless that flag is false');
 ok(/filename: pageName\(state\.jo, state\.page\)/.test(src), 'new pages still use pageName');
 ok(/MAX_PX = 1600/.test(src) && /QUALITY = 0\.8/.test(src) && /PHOTO = \{ maxPx: MAX_PX, quality: QUALITY \}/.test(src), 'camera photos upload at 1600px JPEG 0.8');
 ok(/jpeg-worker\.js/.test(src) && /OffscreenCanvas/.test(src) && /op: 'encode'/.test(src), 'resize and JPEG run in a worker when the phone has one');
-ok(/v=20261021c/.test(html), 'cache-bust bumped');
+ok(/app\.js\?v=20261021d/.test(html), 'cache-bust bumped');
 
 console.log('capture tests passed:', n);

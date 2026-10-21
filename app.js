@@ -49,17 +49,32 @@ refreshWarn();
 
 /* ---------- back-office menu (same list as oypjewelry.com, from its nav.js; copy below if offline) ---------- */
 const STAFF_URL = 'https://oypjewelry.com/staff/'; // back office (oypjewelry.com/ itself is the customer landing page)
-const NAV_FALLBACK = { SITE: STAFF_URL, STAFF: STAFF_URL, NAV: {
-  admin: [['dashboard', 'Dashboard'], ['review', 'To review'], ['estimate', 'Cost estimator'], ['jos', 'Inventory'], ['scanner', 'Scanner'], ['inventory', 'Materials'], ['prices', 'Material prices'], ['customers', 'Customers'], ['shop', 'Shop listings'], ['payments', 'Quotes / payments'], ['settings', 'Settings']], // Staff logins: now Settings › Staff accounts
-  production_manager: [['dashboard', 'Dashboard'], ['review', 'To review'], ['estimate', 'Cost estimator'], ['jos', 'Inventory'], ['scanner', 'Scanner'], ['production', 'Production'], ['inventory', 'Materials'], ['prices', 'Material prices']],
-  accounting: [['dashboard', 'Dashboard'], ['payments', 'Payments'], ['quotes', 'Quotes'], ['balances', 'Balances'], ['clients', 'Clients (billing)'], ['jos', 'Inventory (view)']] } };
+const NAV_FALLBACK = { SITE: STAFF_URL, STAFF: STAFF_URL, OFFICE_NAV: { // same full lists as nav.js OFFICE_NAV, used only if that file has not loaded
+  admin: [['dashboard', 'Dashboard'], ['appts', 'Appointments'], ['jos', 'Inventory'], ['consignment', 'Consignment'], ['review', 'To review'], ['scanner', 'Scanner'], ['production', 'Production'], ['estimate', 'Cost estimator'], ['inventory', 'Materials'], ['prices', 'Material prices'], ['customers', 'Customers'], ['payments', 'Quotes / payments'], ['shop', 'Shop listings'], ['settings', 'Settings']],
+  production_manager: [['dashboard', 'Dashboard'], ['appts', 'Appointments'], ['jos', 'Inventory'], ['consignment', 'Consignment'], ['review', 'To review'], ['scanner', 'Scanner'], ['production', 'Production'], ['estimate', 'Cost estimator'], ['inventory', 'Materials'], ['prices', 'Material prices'], ['balances', 'Balances']],
+  accounting: [['dashboard', 'Dashboard'], ['appts', 'Appointments'], ['jos', 'Inventory (view)'], ['payments', 'Payments'], ['quotes', 'Quotes'], ['balances', 'Balances'], ['clients', 'Clients (billing)']],
+  staff: [['home', 'Home'], ['appts', 'Appointments'], ['scanner', 'Scanner']] } };
+function menuUser(N, role) {
+  let saved = null;
+  try { saved = N.readUser && N.readUser(); } catch (e) {}
+  const r = (saved && saved.role) || role;
+  if (!r) return null;
+  if (saved && saved.role === r) return saved;
+  return { role: r, username: (saved && saved.username) || 'device' };
+}
+function menuItems(N, role) { // full staff list, in the user's saved order when nav.js provides it. Not the shortened scanner list.
+  const user = menuUser(N, role), full = N.OFFICE_NAV || N.NAV || {};
+  if (user && user.role === 'staff') return full.staff || null;
+  if (user && typeof N.ordered === 'function') { const list = N.ordered(user); if (list && list.length) return list; }
+  return user ? full[user.role] : null;
+}
 function printerRow() { // the shared nav.js row: plain text under Settings, green/red dot. Not a header button.
   const N = window.OYPNav;
   if (N && typeof N.printerItemHtml === 'function') return N.printerItemHtml();
   return '<a data-oyp-printer="1" role="button" tabindex="0" title="Printer not connected">Printer<span class="oyp-pr-dot" aria-hidden="true"></span></a>';
 }
 function buildMenu() {
-  const N = window.OYPNav || NAV_FALLBACK, role = localStorage.getItem(LS.role), items = N.NAV[role], site = N.STAFF || STAFF_URL, c = queue.counts();
+  const N = window.OYPNav || NAV_FALLBACK, role = localStorage.getItem(LS.role), items = menuItems(N, role), site = N.STAFF || STAFF_URL, c = queue.counts();
   let h = '', placed = false;
   if (items) h = items.map(([k, t]) => {
     const a = k === 'scanner' ? `<a href="#" data-m="scanner" class="on">${esc(t)}</a>` : `<a href="${site}#/${k}">${esc(t)}</a>`;
