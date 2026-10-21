@@ -1,0 +1,109 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>upload measure</title></head>
+<body><pre id="out">measuring…</pre>
+<script>
+(async () => {
+  const out = document.getElementById('out');
+  const log = [];
+  const say = s => { log.push(s); out.textContent = log.join('\n'); };
+  // A phone photo of a landscape JO card: 12 MP frame, card filling most of it, JO number printed large.
+  const SW = 4032, SH = 3024;
+  const src = document.createElement('canvas'); src.width = SW; src.height = SH;
+  const g = src.getContext('2d');
+  g.fillStyle = '#1a1a1a'; g.fillRect(0, 0, SW, SH);
+  const cardW = 3400, cardH = Math.round(cardW / 1.55);
+  const ox = Math.round((SW - cardW) / 2), oy = Math.round((SH - cardH) / 2);
+  g.fillStyle = '#fff'; g.fillRect(ox, oy, cardW, cardH);
+  g.strokeStyle = '#111'; g.lineWidth = 8; g.strokeRect(ox + 40, oy + 40, cardW - 80, cardH - 80);
+  g.fillStyle = '#111'; g.font = '700 150px sans-serif';
+  g.fillText('JO NO. 26-014', ox + 120, oy + 280);
+  g.font = '500 72px sans-serif';
+  const lines = ['DATE DUE: 12-15-26', 'DATE GIVEN: 10-02-26', 'CLIENT: ANNA CRUZ', 'ITEM: RING', 'METAL: 18K', 'SIZE: 6', 'KARAT: 18K', 'NOTES: RHODIUM'];
+  lines.forEach((t, i) => g.fillText(t, ox + 120, oy + 460 + i * 110));
+  g.font = '400 42px sans-serif';
+  g.fillText('OYP Jewelry  job order card  page 1 of 2', ox + 120, oy + cardH - 120);
+
+  function scale(canvas, maxPx, quality) {
+    const t0 = performance.now();
+    const s = Math.min(1, maxPx / Math.max(canvas.width, canvas.height));
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(canvas.width * s));
+    c.height = Math.max(1, Math.round(canvas.height * s));
+    c.getContext('2d').drawImage(canvas, 0, 0, c.width, c.height);
+    const url = c.toDataURL('image/jpeg', quality);
+    const ms = performance.now() - t0;
+    const b64 = url.slice(url.indexOf(',') + 1);
+    const bytes = Math.round(b64.length * 3 / 4);
+    return { w: c.width, h: c.height, bytes, b64bytes: b64.length, ms, url, canvas: c };
+  }
+  async function scaleWorker(canvas, maxPx, quality) {
+    const t0 = performance.now();
+    const bmp = await createImageBitmap(canvas);
+    const res = await new Promise((resolve, reject) => {
+      const w = new Worker('../jpeg-worker.js?v=20261021b');
+      const id = 1;
+      const timer = setTimeout(() => { w.terminate(); reject(new Error('timeout')); }, 20000);
+      w.onmessage = e => { clearTimeout(timer); w.terminate(); e.data.error ? reject(new Error(e.data.error)) : resolve(e.data); };
+      w.onerror = () => { clearTimeout(timer); reject(new Error('worker error')); };
+      w.postMessage({ id, op: 'encode', bitmap: bmp, quality, maxPx }, [bmp]);
+    });
+    const ms = performance.now() - t0;
+    const bytes = res.buf.byteLength;
+    const u8 = new Uint8Array(res.buf);
+    let bin = '';
+    for (let i = 0; i < u8.length; i += 0x8000) bin += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+    const b64 = btoa(bin);
+    const blob = new Blob([res.buf], { type: 'image/jpeg' });
+    const url = URL.createObjectURL(blob);
+    return { w: res.width, h: res.height, bytes, b64bytes: b64.length, ms, url, buf: res.buf };
+  }
+  function joCrop(canvas) {
+    // JO number line sits near the top of the card. Crop that band the way a zone crop would.
+    const c = document.createElement('canvas');
+    const w = Math.round(canvas.width * 0.72), h = Math.round(canvas.height * 0.16);
+    const x = Math.round(canvas.width * 0.14), y = Math.round(canvas.height * 0.08);
+    c.width = w; c.height = h;
+    c.getContext('2d').drawImage(canvas, x, y, w, h, 0, 0, w, h);
+    return c;
+  }
+  say('loading ocr…');
+  const mod = await import('https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.esm.min.js');
+  const T = mod.default && mod.default.createWorker ? mod.default : mod;
+  const worker = await T.createWorker('eng');
+  async function read(canvasOrUrl) {
+    const r = await worker.recognize(canvasOrUrl);
+    const text = (r.data.text || '').replace(/\s+/g, ' ').trim();
+    return { text: text.slice(0, 180), jo: /26[-\s]?014/.test(text) };
+  }
+  const full = scale(src, 99999, 0.92);
+  say('source phone jpeg ' + full.w + 'x' + full.h + ' ' + full.bytes + ' bytes');
+  const paths = [
+    ['old 2400 q0.9 main', await Promise.resolve(scale(src, 2400, 0.9))],
+    ['new 1600 q0.8 main', scale(src, 1600, 0.8)],
+    ['new 1600 q0.8 worker', await scaleWorker(src, 1600, 0.8)],
+    ['1200 q0.8 main', scale(src, 1200, 0.8)],
+    ['1000 q0.7 main', scale(src, 1000, 0.7)]
+  ];
+  const rows = [];
+  for (const [name, im] of paths) {
+    const page = im.canvas ? await read(im.canvas) : await read(im.url);
+    const crop = im.canvas ? joCrop(im.canvas) : null;
+    let cropRead = null;
+    if (crop) cropRead = await read(crop);
+    else {
+      const img = await new Promise(res => { const i = new Image(); i.onload = () => res(i); i.src = im.url; });
+      const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight;
+      c.getContext('2d').drawImage(img, 0, 0);
+      cropRead = await read(joCrop(c));
+    }
+    const row = { name, w: im.w, h: im.h, jpeg: im.bytes, base64: im.b64bytes, overhead: +(im.b64bytes / im.bytes).toFixed(3), encodeMs: Math.round(im.ms), pageJO: page.jo, cropJO: cropRead.jo, pageText: page.text, cropText: cropRead.text };
+    rows.push(row);
+    say(name + ' ' + im.w + 'x' + im.h + ' jpeg ' + im.bytes + ' b64 ' + im.b64bytes + ' encode ' + Math.round(im.ms) + 'ms pageJO ' + page.jo + ' cropJO ' + cropRead.jo);
+  }
+  await worker.terminate();
+  const summary = { source: { w: full.w, h: full.h, jpeg: full.bytes, encodeMs: Math.round(full.ms) }, rows, roundTrips: '1 POST per page (Drive save + OCR + JobSync). Page 1 also sends printJo and printTag. print.js adds a printEnqueue POST after page 1 only when it sees the upload. Either sticker off skips that POST; the server skips the matching printEnqueue_.' };
+  window.__measure = summary;
+  say('DONE ' + JSON.stringify(summary));
+})().catch(e => { document.getElementById('out').textContent = 'ERR ' + (e && e.stack || e); window.__measure = { error: String(e && e.stack || e) }; });
+</script>
+</body></html>

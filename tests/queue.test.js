@@ -14,12 +14,12 @@ const page = (jo, p, extra) => Object.assign({ jo, page: p, filename: `${jo}-p${
 const netErr = () => { const e = new Error('Failed to fetch'); return e; };
 
 (async () => {
-  { // 1. happy path, one at a time, in order
+  { // 1. happy path: page 1 starts first; later pages overlap it (up to MAX_PARALLEL)
     let inFlight = 0, maxIn = 0;
     const r = rig(async () => { inFlight++; maxIn = Math.max(maxIn, inFlight); await tick(); inFlight--; return { ok: true, joFound: ['26-001'], match: true }; });
     await r.q.add(page('26-001', 1)); await r.q.add(page('26-001', 2)); await r.q.add(page('26-001', 3)); await settle();
-    ok(r.calls.join() === '26-001-p1.jpg,26-001-p2.jpg,26-001-p3.jpg', 'uploads in order');
-    ok(maxIn === 1, 'one upload at a time');
+    ok(r.calls.join() === '26-001-p1.jpg,26-001-p2.jpg,26-001-p3.jpg', 'uploads start in page order');
+    ok(maxIn === 3 && maxIn <= Q.MAX_PARALLEL, 'later pages upload alongside page 1');
     ok(r.q.counts().saved === 3 && r.q.counts().pending === 0, 'all saved');
     ok(r.q.list().every(x => x.image === '' && x.thumb === 't'), 'image dropped after save, thumbnail kept');
     ok(Q.label(r.q.list()[0]) === 'Saved ✓ JO verified', 'verified label');
@@ -91,6 +91,16 @@ const netErr = () => { const e = new Error('Failed to fetch'); return e; };
     const root = g.DriveApp.getRootFolder(); const cards = root.getFoldersByName('Job Order Cards').next(); const fld = cards.getFoldersByName('26-010').next();
     let c = 0; const it = fld.getFiles(); while (it.hasNext()) { it.next(); c++; }
     ok(c === 1 && names.every(x => x === '26-010-p1-101726.jpg'), 'backend: 3 uploads of the same page (same session) leave one Drive file');
+  }
+  { // 11. page 1 does not wait for a later page, and a later page does not wait for page 1 to finish
+    let release;
+    const r = rig(async it => { if (it.page === 1) await new Promise(res => { release = res; }); return { ok: true, joFound: ['26-020'], match: true }; });
+    await r.q.add(page('26-020', 1)); await settle();
+    ok(r.calls.join() === '26-020-p1.jpg' && r.q.list()[0].state === 'uploading', 'page 1 upload starts as soon as it is queued');
+    await r.q.add(page('26-020', 2)); await settle();
+    ok(r.calls.join() === '26-020-p1.jpg,26-020-p2.jpg', 'page 2 starts while page 1 is still uploading');
+    release(); await settle();
+    ok(r.q.counts().saved === 2 && r.q.counts().pending === 0, 'both pages saved');
   }
   console.log('queue tests passed:', n);
 })().catch(e => { console.error(e); process.exit(1); });

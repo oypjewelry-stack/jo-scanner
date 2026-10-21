@@ -2,7 +2,7 @@
 (() => {
 'use strict';
 const $ = id => document.getElementById(id);
-const LS = { api: 'oypScanApi', token: 'oypScanToken', rotate: 'oypScanRotate', auto: 'oypScanAuto', crop: 'oypScanCrop', role: 'oypScanRole' };
+const LS = { api: 'oypScanApi', token: 'oypScanToken', rotate: 'oypScanRotate', auto: 'oypScanAuto', crop: 'oypScanCrop', role: 'oypScanRole', printJo: 'oypScanPrintJo', printTag: 'oypScanPrintTag' };
 const qs = new URLSearchParams(location.search);
 if (qs.get('api')) localStorage.setItem(LS.api, qs.get('api'));
 if (qs.get('token')) localStorage.setItem(LS.token, qs.get('token'));
@@ -13,10 +13,12 @@ if (qs.has('role')) { // set by the back-office menu link: which menu items to s
 const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
 const state = { jo: '', page: 0, scan: '', stream: null, loop: null, lastQuad: null, steadySince: 0, armed: true, cooldownUntil: 0 };
-// pages are downscaled before upload: ~1600px long edge JPEG 0.8 is plenty for the card and for OCR, and 3-5x smaller
+// Upload size: 1600px long edge, JPEG 0.8. Measured against a phone-sized card photo (see the PR):
+// the JO number still OCRs cleanly, and the file is much smaller than the old 2400px / 0.9 camera path.
+// Live shots and camera photos use the same size. The source is capped there too: the detector looks at 480px.
 const MAX_PX = 1600, QUALITY = 0.8, THUMB_PX = 160, STEADY_MS = 900, COOLDOWN_MS = 2500;
-// native-camera / gallery photos carry far more detail than a live frame: keep it (2400px long edge, JPEG 0.9) for OCR + the record
-const PHOTO = { maxPx: 2400, quality: 0.9 }, PHOTO_SRC_PX = 4000;
+const PHOTO = { maxPx: MAX_PX, quality: QUALITY }, PHOTO_SRC_PX = MAX_PX;
+const JPEG_WORKER = 'jpeg-worker.js?v=20261021b';
 
 /* ---------- JO normalisation (shared logic with Code.gs) ---------- */
 function normJO(s) {
@@ -74,8 +76,8 @@ document.addEventListener('click', e => { if (!e.target.closest('#menu,#btnMenu'
 
 /* ---------- views: start / scan / pending uploads ---------- */
 let backTo = 'startView';
-function showView(id) { ['startView', 'scanView', 'queueView'].forEach(v => $(v).classList.toggle('hidden', v !== id)); if (id === 'scanView') setTimeout(() => ensureLive('view'), 50); }
-function showQueue() { const cur = ['startView', 'scanView'].find(v => !$(v).classList.contains('hidden')); if (cur) backTo = cur; showView('queueView'); renderQueue(); window.scrollTo(0, 0); }
+function showView(id) { ['startView', 'scanView', 'queueView', 'capView'].forEach(v => { const n = $(v); if (n) n.classList.toggle('hidden', v !== id); }); if (id === 'scanView') setTimeout(() => ensureLive('view'), 50); if (id === 'capView' || id === 'startView') applySticker(); }
+function showQueue() { const cur = ['startView', 'scanView', 'capView'].find(v => { const n = $(v); return n && !n.classList.contains('hidden'); }); if (cur) backTo = cur; showView('queueView'); renderQueue(); window.scrollTo(0, 0); }
 function closeQueue() { showView(backTo); }
 $('btnQBack').onclick = closeQueue;
 $('btnQueue').onclick = showQueue; $('scanStatus').onclick = showQueue;
@@ -389,18 +391,24 @@ function dateTag(d) {
   return m.slice(5, 7) + m.slice(8, 10) + m.slice(2, 4);
 }
 function pageName(jo, page, d) { return `${jo}-p${page}-${dateTag(d)}.jpg`; }
-function savePage(src, quad, replace, opt) { // the one save path: live shots, photos and re-crops
+async function savePage(src, quad, replace, opt) { // the one save path: live shots, photos and re-crops. Upload starts as soon as this page's JPEG is ready.
   opt = opt || {}; const enh = enhanceOn(), out = renderOut(src, quad, enh, opt.maxPx || MAX_PX);
-  const image = out.toDataURL('image/jpeg', opt.quality || QUALITY);
-  const ts = Math.min(1, THUMB_PX / Math.max(out.width, out.height)), th = document.createElement('canvas');
-  th.width = Math.round(out.width * ts); th.height = Math.round(out.height * ts); th.getContext('2d').drawImage(out, 0, 0, th.width, th.height);
-  const thumb = th.toDataURL('image/jpeg', 0.6); out.width = out.height = 0;
+  const ts = Math.min(1, THUMB_PX / Math.max(out.width, out.height) || 1), th = document.createElement('canvas');
+  th.width = Math.max(1, Math.round(out.width * ts)); th.height = Math.max(1, Math.round(out.height * ts));
+  th.getContext('2d').drawImage(out, 0, 0, th.width, th.height);
+  const thumb = th.toDataURL('image/jpeg', 0.6);
+  const image = await canvasJpeg(out, opt.quality || QUALITY); out.width = out.height = 0;
   let p;
   if (replace) p = { jo: replace.jo, page: replace.page, filename: replace.filename, scan: replace.scan }; // re-crop: same file name, replaces it
-  else { state.page++; updatePageLabel(); p = { jo: state.jo, page: state.page, filename: pageName(state.jo, state.page), scan: state.scan }; }
-  p.thumb = thumb;
-  if (replace && photo.last && photo.last.pg === replace) { photo.last.pg = Object.assign({ quad }, p); setTimeout(renderLast, 0); } // Adjust crop on a Scan JO photo
+  else { state.page++; updatePageLabel(); p = { jo: state.jo, page: state.page, filename: pageName(state.jo, state.page), scan: state.scan }; cap.pages.push(p); cap.saving = false; }
+  p.thumb = thumb; p.quad = quad || null;
+  if (replace && photo.last && photo.last.pg === replace) { // Adjust crop on a Scan JO photo
+    photo.last.pg = Object.assign({ quad }, p);
+    const i = cap.pages.findIndex(x => x === replace || (x.scan === replace.scan && x.filename === replace.filename && x.page === replace.page));
+    if (i >= 0) cap.pages[i] = photo.last.pg;
+  }
   queue.add(Object.assign({ image }, p)).catch(e => { console.error(e); note('Could not store the page on this phone: ' + (e.message || e)); });
+  renderCapture();
   return p;
 }
 function warp(src, q, maxPx) {
@@ -439,7 +447,75 @@ function warpJS(src, q, maxPx) {
    The photo goes through the same detector, crop, enhance, rotation and savePage() as a live shot. It saves straight away
    (live shots save straight away when the outline is clean); the result card offers Adjust crop afterwards. */
 const photo = { busy: false, cont: false, last: null };
-function loadPhoto(file) { // EXIF orientation respected; very large photos (48 MP) scaled to PHOTO_SRC_PX so phones keep memory
+const cap = { pages: [], saving: false }; // pages of the capture currently on screen
+
+/* JO sticker and Jewelry tag: both on by default, each remembered on this phone.
+   Page 1 sends printJo and printTag. Off posts with the original fetch so print.js
+   (which queues a jo_card after every page-1 upload it can see) cannot add the one that was turned off. */
+function stickerOn(which) {
+  const key = which === 'tag' ? LS.printTag : LS.printJo;
+  return localStorage.getItem(key) !== '0';
+}
+function applySticker() {
+  ['jo', 'tag'].forEach(which => {
+    const on = stickerOn(which);
+    document.querySelectorAll('[data-sticker="' + which + '"]').forEach(el => { el.checked = on; });
+    document.querySelectorAll('[data-sticker-val="' + which + '"]').forEach(el => { el.textContent = on ? 'On' : 'Off'; });
+    document.querySelectorAll('[data-nostick="' + which + '"]').forEach(el => el.classList.toggle('hidden', on));
+  });
+}
+function setSticker(which, on) { localStorage.setItem(which === 'tag' ? LS.printTag : LS.printJo, on ? '1' : '0'); applySticker(); }
+document.addEventListener('change', e => { const t = e.target && e.target.closest && e.target.closest('[data-sticker]'); if (!t) return; setSticker(t.getAttribute('data-sticker'), !!t.checked); });
+applySticker();
+
+/* Resize / JPEG in a worker + OffscreenCanvas when the phone has them. Main thread is the fallback. */
+let jpegWorker = null, jpegJobs = new Map(), jpegJob = 0, jpegWorkerBroken = false;
+function jpegWorkerRef() {
+  if (jpegWorkerBroken) return null;
+  if (jpegWorker) return jpegWorker;
+  if (typeof Worker !== 'function' || typeof OffscreenCanvas === 'undefined') return null;
+  try { jpegWorker = new Worker(JPEG_WORKER); } catch (e) { jpegWorkerBroken = true; jpegWorker = null; return null; }
+  jpegWorker.onmessage = e => {
+    const j = jpegJobs.get(e.data && e.data.id); if (!j) return; jpegJobs.delete(e.data.id); clearTimeout(j.timer);
+    if (e.data.error) j.reject(new Error(e.data.error)); else j.resolve(e.data);
+  };
+  jpegWorker.onerror = () => { jpegWorkerBroken = true; jpegJobs.forEach(j => { clearTimeout(j.timer); j.reject(new Error('worker failed')); }); jpegJobs.clear(); jpegWorker = null; };
+  return jpegWorker;
+}
+function workerCall(msg, transfers) {
+  const w = jpegWorkerRef(); if (!w) return Promise.reject(new Error('no worker'));
+  const id = ++jpegJob;
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { jpegJobs.delete(id); reject(new Error('worker timeout')); }, 20000);
+    jpegJobs.set(id, { resolve, reject, timer });
+    try { w.postMessage(Object.assign({ id }, msg), transfers || []); } catch (e) { clearTimeout(timer); jpegJobs.delete(id); reject(e); }
+  });
+}
+function bytesToJpegUrl(buf) {
+  const bytes = new Uint8Array(buf); let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return 'data:image/jpeg;base64,' + btoa(bin);
+}
+async function canvasJpeg(canvas, quality) {
+  try {
+    if (typeof createImageBitmap === 'function' && jpegWorkerRef()) {
+      const bmp = await createImageBitmap(canvas);
+      const res = await workerCall({ op: 'encode', bitmap: bmp, quality, maxPx: Math.max(canvas.width, canvas.height) }, [bmp]);
+      return bytesToJpegUrl(res.buf);
+    }
+  } catch (e) { console.warn('jpeg worker', e); }
+  return canvas.toDataURL('image/jpeg', quality);
+}
+function loadPhoto(file) { // EXIF orientation respected; very large photos scaled to PHOTO_SRC_PX so phones keep memory
+  const viaWorker = () => file.arrayBuffer().then(buf => workerCall({ op: 'scale', buf, type: file.type || 'image/jpeg', maxPx: PHOTO_SRC_PX }, [buf])).then(res => {
+    const bmp = res.bitmap, c = document.createElement('canvas'); c.width = bmp.width; c.height = bmp.height;
+    c.getContext('2d').drawImage(bmp, 0, 0); if (bmp.close) bmp.close(); return c;
+  });
+  const main = () => loadPhotoMain(file);
+  if (!jpegWorkerRef()) return main();
+  return viaWorker().catch(e => { console.warn('scale worker', e); return main(); });
+}
+function loadPhotoMain(file) {
   const draw = (el, w, h) => { const s = Math.min(1, PHOTO_SRC_PX / Math.max(w, h)), c = document.createElement('canvas');
     c.width = Math.round(w * s); c.height = Math.round(h * s); c.getContext('2d').drawImage(el, 0, 0, c.width, c.height); return c; };
   const viaImg = () => new Promise((res, rej) => { const u = URL.createObjectURL(file), i = new Image();
@@ -455,44 +531,107 @@ async function autoSave(src) {
   let q = null;
   if (cv && cv.Mat) { try { q = detect(cv, src); } catch (e) { console.warn('detect', e); }
     if (q) { try { const m = cv.imread(src); q = CardDetector.refineQuad(cv, m, CardDetector.order(q)); m.delete(); } catch (e) { console.warn('refine', e); } } }
-  const quad = q && CardDetector.order(q), pg = savePage(src, quad, null, PHOTO);
-  pg.quad = quad; return pg;
+  const quad = q && CardDetector.order(q), pg = await savePage(src, quad, null, PHOTO);
+  if (pg) pg.quad = quad;
+  return pg;
 }
-function photoBusy(on) { photo.busy = on; $('btnScanJO').classList.toggle('busy', on); $('lnkGallery').classList.toggle('dis', on); }
+function photoBusy(on) {
+  photo.busy = on; $('btnScanJO').classList.toggle('busy', on); $('lnkGallery').classList.toggle('dis', on);
+  const n = $('btnNextPage'); if (n) n.classList.toggle('busy', on);
+  const d = $('btnCapDone'); if (d) d.disabled = on;
+}
 async function handlePhotos(files) {
   files = Array.from(files || []).filter(f => /^image\//.test(f.type) || /\.(hei[cf]|jpe?g|png|webp)$/i.test(f.name));
   if (!files.length) return;
   const jo = photo.cont && state.jo ? state.jo : normJO($('joInput').value);
   if (!jo) { $('joInput').focus(); return note('Type the JO number first.'); }
-  if (!photo.cont || state.jo !== jo) { state.jo = jo; state.page = 0; state.scan = jo + '@' + Date.now().toString(36); }
-  photo.cont = false; photoBusy(true);
+  const fresh = !photo.cont || state.jo !== jo;
+  if (fresh) { state.jo = jo; state.page = 0; state.scan = jo + '@' + Date.now().toString(36); cap.pages = []; }
+  photo.cont = false; // consumed; Next page sets it again on the tap that opens the camera
+  showView('capView'); photoBusy(true);
+  let saved = 0;
   try {
     for (const f of files) {
-      let src; try { src = await loadPhoto(f); } catch (e) { note('Photo not saved: ' + (e.message || e)); continue; }
+      cap.saving = true; renderCapture();
+      let src; try { src = await loadPhoto(f); } catch (e) { cap.saving = false; note('Photo not saved: ' + (e.message || e)); continue; }
       await new Promise(r => setTimeout(r, 30)); // let "Saving…" paint before the heavy work
       const pg = await autoSave(src);
+      cap.saving = false;
+      if (!pg) continue;
+      saved++;
       if (photo.last && photo.last.src !== src) { photo.last.src.width = photo.last.src.height = 0; } // keep only the latest photo for Adjust
       photo.last = { src, pg }; if (navigator.vibrate) navigator.vibrate(40);
+      renderCapture(); // this page is already uploading; stay here for the next one
     }
-    $('joInput').value = ''; // ready for the next JO
   } catch (e) { console.error(e); note('Could not save the photo: ' + (e.message || e)); }
-  finally { photoBusy(false); renderLast(); }
+  finally { cap.saving = false; photoBusy(false); if (!saved && fresh && !cap.pages.length) showView('startView'); renderCapture(); }
 }
-function renderLast() {
-  const box = $('lastScan'), L = photo.last; if (!box) return;
-  if (!L) { box.classList.add('hidden'); return; }
-  const pg = L.pg, it = queue.list().find(x => x.scan === pg.scan && x.filename === pg.filename);
-  const st = !it ? 'Saved ✓' : it.state === 'saved' ? 'Saved ✓' : it.state === 'failed' ? 'Upload failed. Open Pending uploads' : it.state === 'mismatch' ? OYPQueue.label(it, isOn()) : (isOn() ? 'Uploading…' : 'Waiting for internet');
-  const cls = !it || it.state === 'saved' ? 'ok' : it.state === 'failed' ? 'err' : it.state === 'mismatch' ? 'mm' : 'busy';
-  box.innerHTML = `<img alt="" src="${esc(pg.thumb)}"><div class="tx"><div class="nm">JO ${esc(pg.jo)} · page ${esc(pg.page)}${pg.quad ? '' : ' <em>(whole photo)</em>'}</div><div class="st ${cls}">${esc(st)}</div>`
-    + `<div class="la"><button type="button" class="alt" data-adj>Adjust crop</button><label for="filePhoto" class="alt" data-more role="button" tabindex="0">+ Page ${esc(state.jo === pg.jo ? state.page + 1 : pg.page + 1)}</label></div></div>`;
-  box.classList.remove('hidden');
+function capMatch(pg) {
+  const all = queue.list();
+  return all.find(x => x.scan === pg.scan && x.filename === pg.filename) || all.find(x => x.scan === pg.scan && x.page === pg.page);
+}
+function capState(pg) {
+  const it = capMatch(pg);
+  if (!it) return pg.jo === 'OCR' ? { cls: 'busy', t: 'Reading…' } : { cls: 'busy', t: 'Waiting' };
+  if (it.state === 'uploading') return { cls: 'busy', t: 'Uploading…' };
+  if (it.state === 'waiting') return { cls: 'queued', t: isOn() ? (it.error ? 'Retrying' : 'Waiting') : 'Offline' };
+  if (it.state === 'saved') return { cls: 'ok', t: 'Saved' };
+  if (it.state === 'mismatch') return { cls: 'mm', t: 'Check JO' };
+  if (it.state === 'failed') return { cls: 'err', t: 'Failed', retry: it.id };
+  return { cls: 'queued', t: it.state };
+}
+function renderCapture() {
+  const strip = $('capStrip'), box = $('lastScan');
+  if ($('capJo')) {
+    const known = state.jo && state.jo !== 'OCR';
+    $('capJo').textContent = known ? 'JO ' + state.jo : ((cap.pages.length || cap.saving) ? 'Reading the JO number…' : '');
+  }
+  if ($('capCount')) $('capCount').textContent = cap.pages.length ? (cap.pages.length === 1 ? '1 page' : cap.pages.length + ' pages') : '';
+  if (strip) {
+    const tiles = cap.pages.map(pg => {
+      const s = capState(pg);
+      const retry = s.retry ? `<button type="button" class="retry" data-retry="${esc(s.retry)}">Retry</button>` : '';
+      return `<li class="${esc(s.cls)}"><img alt="Page ${esc(pg.page)}" src="${esc(pg.thumb || '')}"><span class="pn">Page ${esc(pg.page)}</span><span class="st ${esc(s.cls)}">${esc(s.t)}</span>${retry}</li>`;
+    }).join('');
+    strip.innerHTML = tiles + (cap.saving ? '<li class="busy"><span class="ph" aria-hidden="true"></span><span class="pn">New page</span><span class="st busy">Saving…</span></li>' : '');
+  }
+  const states = cap.pages.map(capState);
+  const pending = states.filter(s => s.cls === 'busy' || s.cls === 'queued').length + (cap.saving ? 1 : 0);
+  const failed = states.filter(s => s.retry).length;
+  const prog = $('capProg');
+  if (prog) {
+    prog.className = 'capprog' + (failed ? ' err' : pending ? ' busy' : cap.pages.length ? ' ok' : '');
+    prog.textContent = !cap.pages.length && !cap.saving ? '' : failed ? (failed + (failed > 1 ? ' pages failed' : ' page failed')) : pending ? (pending === 1 ? '1 page still uploading' : pending + ' pages still uploading') : 'All saved';
+  }
+  const retryAll = $('btnCapRetry'); if (retryAll) retryAll.classList.toggle('hidden', !failed);
+  if (box) {
+    const L = photo.last;
+    if (!L || !L.pg) box.classList.add('hidden');
+    else { box.innerHTML = '<div class="la"><button type="button" class="alt" data-adj>Adjust crop</button></div>'; box.classList.remove('hidden'); }
+  }
+  applySticker();
+}
+function finishCapture() {
+  if (photo.busy) return; // the page being saved still goes into the queue when it finishes
+  photo.cont = false;
+  const c = queue.counts();
+  cap.pages = []; cap.saving = false; photo.last = null;
+  $('joInput').value = '';
+  showView('startView'); renderCapture();
+  if (c.pending) note(c.pending + (c.pending > 1 ? ' pages are' : ' page is') + ' still uploading. They keep going in the background, even if you close this page.');
+  else if (c.failed) note(c.failed + (c.failed > 1 ? ' pages failed. ' : ' page failed. ') + 'Open Pending uploads to retry. Nothing was discarded.');
 }
 $('lastScan').addEventListener('click', e => {
   const L = photo.last; if (!L) return;
-  if (e.target.closest('[data-more]')) { if (photo.busy) return e.preventDefault(); photo.cont = true; return; } // next page, same JO
-  if (e.target.closest('[data-adj]') && L.src.width) openReview(L.src, (L.pg.quad || [[0.08, 0.08], [0.92, 0.08], [0.92, 0.92], [0.08, 0.92]]).map(p => p.slice()), !!L.pg.quad, L.pg, PHOTO);
+  if (e.target.closest('[data-adj]') && L.src && L.src.width) openReview(L.src, (L.pg.quad || [[0.08, 0.08], [0.92, 0.08], [0.92, 0.92], [0.08, 0.92]]).map(p => p.slice()), !!L.pg.quad, L.pg, PHOTO);
 });
+$('btnNextPage').addEventListener('click', e => {
+  if (photo.busy) { e.preventDefault(); return; }
+  photo.cont = true; // one tap opens the camera; no navigation, same JO
+});
+$('btnNextPage').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('btnNextPage').click(); } });
+$('btnCapDone').onclick = finishCapture;
+$('btnCapRetry').onclick = () => { cap.pages.forEach(pg => { const s = capState(pg); if (s.retry) queue.retry(s.retry); }); };
 // the label opens the camera on the same tap; only stop it when there is no JO yet (or a photo is still saving)
 $('btnScanJO').addEventListener('click', e => {
   photo.cont = false; $('btnScanJO').classList.remove('pulse');
@@ -504,13 +643,35 @@ $('lnkGallery').addEventListener('click', e => { photo.cont = false; if (photo.b
 ['filePhoto', 'fileGallery'].forEach(id => $(id).addEventListener('change', e => { const fs = e.target.files; handlePhotos(fs).finally(() => { e.target.value = ''; }); }));
 
 /* ---------- upload queue (queue.js, IndexedDB) ---------- */
+// Page 1 creates or identifies the JO and is the only page that queues stickers.
+function scanPayload(it, token, stick) {
+  stick = stick || {};
+  const body = { token: token || '', jo: it.jo, page: it.page, filename: it.filename, scan: it.scan || '', imageBase64: it.image.split(',')[1] };
+  if ((parseInt(it.page, 10) || 1) === 1) {
+    body.printJo = stick.printJo !== false;
+    body.printTag = stick.printTag !== false;
+  }
+  return body;
+}
+async function postScan(body, signal) {
+  let payload = body, doFetch = fetch;
+  if (body.printJo === false || body.printTag === false) {
+    // print.js queues a jo_card after every page-1 upload it can see, and does not read these flags.
+    // Skip that hook whenever either sticker is off. Zones still run: prepare() adds the JO-number crop.
+    if (window.OYPZones && typeof OYPZones.prepare === 'function') {
+      try { const next = await OYPZones.prepare(body); if (next && next.imageBase64) payload = next; } catch (e) { console.warn(e); }
+    }
+    doFetch = window.__oypNativeFetch || fetch;
+  }
+  return doFetch(api(), { method: 'POST', redirect: 'follow', signal,
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // simple request: no CORS preflight
+    body: JSON.stringify(payload) });
+}
 async function sendPage(it) {
   const ctl = typeof AbortController !== 'undefined' ? new AbortController() : null, to = ctl && setTimeout(() => ctl.abort(), 120000);
   let res;
   try {
-    res = await fetch(api(), { method: 'POST', redirect: 'follow', signal: ctl && ctl.signal,
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // simple request: no CORS preflight
-      body: JSON.stringify({ token: localStorage.getItem(LS.token) || '', jo: it.jo, page: it.page, filename: it.filename, scan: it.scan || '', imageBase64: it.image.split(',')[1] }) });
+    res = await postScan(scanPayload(it, localStorage.getItem(LS.token) || '', { printJo: stickerOn('jo'), printTag: stickerOn('tag') }), ctl && ctl.signal);
   } catch (e) {
     const er = new Error(e && e.name === 'AbortError' ? 'timed out' : 'no connection'); er.offline = navigator.onLine === false; throw er;
   } finally { clearTimeout(to); }
@@ -558,7 +719,7 @@ function renderQueue() {
   document.querySelectorAll('.qbadge').forEach(b => { b.textContent = n; b.classList.toggle('hidden', !n); b.classList.toggle('bad', !!c.failed); });
   const qs = $('qStatus'); qs.textContent = c.total ? txt : ''; qs.className = 'qstatus' + (c.failed ? ' err' : c.pending ? ' busy' : ' ok');
   const ss = $('scanStatus'); ss.querySelector('span').textContent = txt; ss.className = 'sstat' + (c.failed ? ' err' : c.pending ? ' busy' : ' ok');
-  renderLast();
+  renderCapture();
   const mine = queue.list().filter(x => x.scan && x.scan === state.scan).reverse();
   if (swHold) swDirty = true; else $('pages').innerHTML = mine.map(it => rowHtml(it, false)).join(''); // not while a row is being swiped / asked about
   if ($('queueView').classList.contains('hidden')) return;
@@ -630,7 +791,7 @@ function askDelete(it) {
 window.addEventListener('online', () => { queue.wake(); renderQueue(); });
 window.addEventListener('offline', renderQueue);
 queue.load().then(() => queue.wake()).catch(e => { console.error('queue', e); note('This phone could not open its upload store: ' + (e.message || e)); });
-window.__scan = { handlePhotos, loadPhoto, photo, rotFor, swipeAxis, swipePast, rotateCanvas, rotation, state, review, openReview, capture, finalConfidence, AUTO_ACCEPT, queue, ensureLive };
+window.__scan = { handlePhotos, loadPhoto, photo, cap, rotFor, swipeAxis, swipePast, rotateCanvas, rotation, state, review, openReview, capture, finalConfidence, AUTO_ACCEPT, queue, ensureLive, stickerOn, setSticker, scanPayload, renderCapture, finishCapture };
 })();
 
 // owner: stone background only while the start screen is shown
