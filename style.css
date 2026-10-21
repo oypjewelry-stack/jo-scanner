@@ -147,7 +147,7 @@ header.top .title{font-size:20px}
 .rvpreview{object-fit:cover;aspect-ratio:1/1.55;height:72px;width:auto;background:none}
 .toast img{height:56px;aspect-ratio:1/1.55;object-fit:cover}
 /* owner: more space above JO box; listening = gold icon only */
-#startView .help{margin-bottom:32px}
+#startView .help{margin-bottom:calc(16px * var(--sp, 1))}
 .jorow .mic.listening{color:#d4af37;background:transparent;animation:none;box-shadow:none;transform:translateY(-50%)}
 /* owner: JO cap height = mic icon visual height (~20.6px); Inter cap-height 0.75em */
 .jorow .jopre{font-size:22px;line-height:1;letter-spacing:.02em}
@@ -160,8 +160,8 @@ header.top .title{font-size:20px}
 /* owner: title cap-centre aligned with logo centre */
 header.top .title{line-height:1;position:relative;top:2.5px}
 #startView h1,#startView .help{text-align:center}
-/* owner: instructions on one line down to 360px */
-#startView .help{white-space:nowrap;font-size:15px}
+/* help stays 15px. The sentence wraps on a narrow phone instead of running off the edge. */
+#startView .help{white-space:normal;font-size:15px}
 /* owner: stone background below white header, fixed (iOS-safe pseudo-element) */
 html.on-start body::before{content:"";position:fixed;inset:0;z-index:-1;background:#fff url(bg-stone.jpg?v=1792162220) center/cover no-repeat;pointer-events:none}
 header.top{background:#fff}
@@ -261,6 +261,10 @@ select.mid{width:100%;font-size:16px;padding:14px;border:1px solid #ccc;border-r
 .lastscan .la{display:flex;gap:4px;margin:2px 0 0 -8px;align-items:center;flex-wrap:wrap}.lastscan .la .alt{min-height:36px;font-size:13px}
 /* JO sticker / Jewelry tag: same settog as the back office (settings.css) */
 .stickrow{display:flex;flex-wrap:wrap;justify-content:center;gap:8px 10px;margin:0 auto 2px}
+#startView .scanjo{margin-top:0;margin-bottom:calc(16px * var(--sp, 1))}
+#startView .stickrow{margin-bottom:calc(16px * var(--sp, 1))}
+#startView .jorow{margin-bottom:calc(16px * var(--sp, 1))}
+#startView .altrow{margin-top:0}
 .settog{display:inline-flex;align-items:center;gap:8px;font-family:var(--label);font-weight:400;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#111;cursor:pointer}
 .settog input{width:20px;height:20px;accent-color:#111;margin:0}
 .settog b{font-weight:500}
@@ -282,8 +286,11 @@ select.mid{width:100%;font-size:16px;padding:14px;border:1px solid #ccc;border-r
 .capprog.ok{color:#2a7a2a}.capprog.busy{color:#a06b00}.capprog.err{color:#b00020}
 #btnCapRetry{width:auto;min-height:34px;margin:8px auto 0;padding:0 18px;font-size:14px}
 .capacts{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:10px;margin-top:16px}
-#btnNextPage,#btnCapDone{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;width:auto;min-height:0;height:34px;margin:0;padding:0 18px;border-radius:26px;border:1px solid #111;font-family:'Libre Bodoni',Georgia,serif;font-weight:500;font-size:14px;letter-spacing:0;line-height:1;cursor:pointer;text-decoration:none;user-select:none;-webkit-user-select:none}
-#btnNextPage{background:#111;color:#fff}
+.capjo{margin:8px 0 4px}
+.capjo .capjorow{display:flex;align-items:center;gap:10px}
+.capjo .jorow{flex:1;min-width:0}
+#btnNextPage,#btnCapDone,#btnCapJoSave{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;width:auto;min-height:0;height:34px;margin:0;padding:0 18px;border-radius:26px;border:1px solid #111;font-family:'Libre Bodoni',Georgia,serif;font-weight:500;font-size:14px;letter-spacing:0;line-height:1;cursor:pointer;text-decoration:none;user-select:none;-webkit-user-select:none}
+#btnNextPage,#btnCapJoSave{background:#111;color:#fff}
 #btnCapDone{background:#fff;color:#111}
 #btnCapDone:disabled{opacity:.45}
 #btnNextPage .sjbusy{display:none}
