@@ -3,13 +3,13 @@
 <meta http-equiv="Cache-Control" content="no-cache">
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <style>html.leaving body{visibility:hidden}</style>
-<script src="handoff.js?v=20261022a"></script>
+<script src="handoff.js?v=20261022c"></script>
 <meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="OYP Scanner"><meta name="apple-mobile-web-app-status-bar-style" content="default"><meta name="theme-color" content="#ffffff">
 <link rel="manifest" href="manifest.webmanifest">
 <title>OYP Card Scanner</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Libre+Bodoni:wght@400;500;600&family=Bodoni+Moda:opsz,wght@6..96,400;6..96,500&family=Inter:wght@500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=20261022a">
+<link rel="stylesheet" href="style.css?v=20261022c">
 <link rel="icon" type="image/png" href="favicon.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 </head><body>
@@ -36,8 +36,10 @@
   </div>
   <p class="muted help">Tap to scan the JO and choose which sticker to print. If the JO has no number or it's hard to read, type it in the box.</p>
   <div class="altrow"><label id="lnkGallery" for="fileGallery" class="alt" role="button" tabindex="0">Upload from gallery</label><span aria-hidden="true">·</span><button id="btnStart" class="alt" type="button">Live scan</button></div>
+  <button id="upCount" class="upcount hidden" type="button">0 uploading</button>
   <button id="btnQueue" class="qbtn" type="button">Pending uploads <span class="qbadge hidden"></span></button>
   <p id="qStatus" class="qstatus"></p>
+  <p id="storeWarn" class="warn hidden">This phone is low on space. Photos stay here until they upload. Free some space so the next cards can be saved.</p>
   <p id="apiWarn" class="warn hidden">No backend URL set yet. Open Menu → Scanner settings to add it (pages are kept on this phone until then).</p>
 </section>
 
@@ -57,6 +59,7 @@
   <p class="nostick hidden" data-nostick="tag">No jewelry tag</p>
   <ul id="capStrip" class="strip"></ul>
   <p id="capProg" class="capprog"></p>
+  <button id="upCountCap" class="upcount hidden" type="button">0 uploading</button>
   <button id="btnCapRetry" class="ghost hidden" type="button">Retry failed</button>
   <div id="lastScan" class="lastscan hidden"></div>
   <div class="capacts">
@@ -116,9 +119,9 @@
 <canvas id="work" class="hidden"></canvas>
 <div id="toast" class="toast hidden"><img id="toastImg" alt=""><span>Saved</span><button id="toastAdjust" class="ghost">Adjust</button></div>
 <script>window.__oypNativeFetch = window.fetch.bind(window);</script>
-<script src="queue.js?v=20261021c"></script>
+<script src="queue.js?v=20261022c"></script>
 <script src="https://oypjewelry.com/nav.js?v=33" async></script>
 <script src="detector.js?v=20261021c"></script>
-<script src="app.js?v=20261022b"></script>
+<script src="app.js?v=20261022c"></script>
 <script src="voice.js?v=20261021c"></script>
 </body></html>

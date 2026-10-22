@@ -87,7 +87,7 @@ function unfinished() {
       q.onsuccess = function () {
         var n = 0;
         (q.result || []).forEach(function (it) {
-          if (it && (it.state === 'waiting' || it.state === 'uploading' || it.state === 'failed' || it.state === 'deleting')) n++;
+          if (it && (it.state === 'waiting' || it.state === 'uploading' || it.state === 'failed' || it.state === 'deleting' || it.state === 'needsjo')) n++;
         });
         db.close();
         resolve(n);

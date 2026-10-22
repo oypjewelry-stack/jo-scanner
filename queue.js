@@ -1,16 +1,17 @@
 /* OYP Card Scanner: persistent upload queue.
    Pages are written to IndexedDB the moment they are taken and upload in the background,
-   with retry + backoff. Page 1 starts as soon as it is queued. Later pages start in order
-   and may be in flight at the same time (a few at once), so page 1 never waits on them.
-   Survives Done, new scans, reload and closing the tab.
+   with retry + backoff. Every page 1 (the front card) is sent before any later page,
+   so a sticker still prints while a hundred later pages are waiting. Two or three
+   uploads run at once. A photo stays in IndexedDB until the server confirms it;
+   the bytes are cleared only then. Survives Done, new scans, reload, sleep and closing the tab.
    Works in the browser (window.OYPQueue) and in Node for tests (module.exports). */
 (function (root) {
 'use strict';
-const STATES = ['waiting', 'uploading', 'saved', 'mismatch', 'failed']; // + 'deleting': a swiped-away page whose Drive copy is still to be trashed (never listed)
+const STATES = ['waiting', 'uploading', 'saved', 'mismatch', 'failed', 'needsjo']; // + 'deleting': a swiped-away page whose Drive copy is still to be trashed (never listed)
 const KEEP_SAVED_MS = 12 * 3600e3, KEEP_SAVED_MAX = 60, MAX_TRIES = 6;
 // backoff: 3s, 10s, 30s, 1m, 2m, then give up as Failed (Retry is always offered)
 const BACKOFF = [3e3, 10e3, 30e3, 60e3, 120e3];
-const MAX_PARALLEL = 3; // page 1 plus the next pages of the same card; the server lock keeps file names straight
+const MAX_PARALLEL = 3; // 2 to 3 at a time; ready page-1 cards fill the slots before any later page
 const backoff = tries => BACKOFF[Math.min(tries - 1, BACKOFF.length - 1)];
 const keyOf = (jo, filename, scan) => jo + '|' + filename + (scan ? '|' + scan : ''); // one entry per page per session: a re-crop replaces it, a later session never does
 
@@ -24,7 +25,9 @@ function idbStore(name) {
   name = name || 'oypScanQueue';
   let dbp = null;
   const db = () => dbp || (dbp = new Promise((res, rej) => {
-    const r = indexedDB.open(name, 1);
+    const idb = root.indexedDB;
+    if (!idb) { dbp = null; rej(new Error('no indexedDB')); return; }
+    const r = idb.open(name, 1);
     r.onupgradeneeded = () => r.result.createObjectStore('items', { keyPath: 'id' });
     r.onsuccess = () => res(r.result); r.onerror = () => { dbp = null; rej(r.error); };
   }));
@@ -51,6 +54,11 @@ function create(opts) {
   const list = () => all().filter(x => x.state !== 'deleting');
   const emit = () => { try { onChange(api); } catch (e) { console.error(e); } };
   async function save(it) { items.set(it.id, it); await store.put(it); }
+  function makeClientId() {
+    try { if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID(); } catch (e) {}
+    return 'c' + now().toString(36) + Math.random().toString(36).slice(2, 12);
+  }
+  function needsNumber(p) { return !!(p && (p.held || p.needsJo || !p.jo || p.jo === 'OCR')); }
 
   function load() {
     if (loaded) return loaded;
@@ -74,13 +82,41 @@ function create(opts) {
       if (t - x.savedAt > keep || i >= KEEP_SAVED_MAX) { items.delete(x.id); await store.del(x.id); }
     }
   }
-  // add a page; a re-shoot of the same JO page replaces the earlier entry (same Drive file name)
+  // add a page; a re-shoot of the same JO page replaces the earlier entry (same Drive file name).
+  // Held pages (JO not read yet) stay in IndexedDB as needsjo and are not uploaded until bindJo.
   async function add(p) {
     await load();
     const id = keyOf(p.jo, p.filename, p.scan), old = items.get(id);
+    const held = needsNumber(p);
     const it = { id, jo: p.jo, page: p.page, filename: p.filename, scan: p.scan || '', image: p.image, thumb: p.thumb || '',
-      state: 'waiting', tries: 0, nextAt: 0, error: '', found: [], createdAt: now(), seq: ++seq, rev: ((old && old.rev) || 0) + 1, savedAt: 0 };
-    await save(it); emit(); kick(); return it;
+      state: held ? 'needsjo' : 'waiting', tries: 0, nextAt: 0, error: '', found: [], createdAt: now(), seq: ++seq, rev: ((old && old.rev) || 0) + 1, savedAt: 0,
+      clientId: p.clientId || makeClientId(), printJo: p.printJo !== false, printTag: p.printTag !== false,
+      token: p.token != null ? String(p.token) : '', api: p.api || '', shot: p.shot || 0 };
+    await save(it); emit(); if (!held) kick(); return it;
+  }
+  // The JO number was typed or read later. Every page of that capture starts uploading, page 1 first.
+  // The clientId stays so a retry of the same photo is still the same photo.
+  async function bindJo(scan, jo, newScan, nameFor) {
+    await load();
+    jo = normJO(jo);
+    if (!jo || !scan) return false;
+    const group = all().filter(x => x.scan === scan && x.state === 'needsjo');
+    if (!group.length) return false;
+    for (const x of group) {
+      const filename = nameFor ? nameFor(x) : x.filename;
+      const scan = newScan || x.scan;
+      const prev = x.id;
+      x.jo = jo;
+      x.filename = filename;
+      x.scan = scan;
+      x.id = keyOf(x.jo, x.filename, x.scan);
+      x.state = x.image ? 'waiting' : 'failed';
+      x.nextAt = 0; x.error = ''; x.held = false;
+      if (!x.image) x.error = x.error || 'photo missing';
+      if (prev !== x.id) { items.delete(prev); await store.del(prev); }
+      await save(x);
+    }
+    emit(); kick(); return true;
   }
   function schedule() {
     clearT(timer); timer = null;
@@ -102,7 +138,7 @@ function create(opts) {
     if (!err) {
       const found = (res.joFound || []).map(normJO), jo = normJO(cur.jo);
       cur.found = found; cur.state = (res.match || found.includes(jo) || !found.length) ? 'saved' : 'mismatch';
-      cur.verified = !!(res.match || found.includes(jo)); cur.savedAt = now(); cur.image = ''; // free the space, keep the thumbnail
+      cur.verified = !!(res.match || found.includes(jo)); cur.savedAt = now(); cur.image = ''; // photo bytes leave IndexedDB only after the server confirms; the thumbnail row stays
       cur.fileId = res.fileId || ''; cur.savedName = res.filename || ''; // what Drive saved (for a later swipe-delete)
       cur.error = ''; await save(cur);
     } else {
@@ -114,6 +150,16 @@ function create(opts) {
       await save(cur);
     }
     await prune(); emit();
+  }
+  // Ready page-1 cards first, even if a later page was queued earlier. Leftover slots then take later pages.
+  function nextReady() {
+    const ready = list().filter(x => x.state === 'waiting' && x.image && (x.nextAt || 0) <= now());
+    ready.sort((a, b) => {
+      const pa = (parseInt(a.page, 10) || 1) === 1 ? 0 : 1;
+      const pb = (parseInt(b.page, 10) || 1) === 1 ? 0 : 1;
+      return pa - pb || (a.createdAt - b.createdAt) || (a.seq - b.seq);
+    });
+    return ready[0] || null;
   }
   function launch(it, rev) {
     (async () => {
@@ -138,7 +184,7 @@ function create(opts) {
         if (!online()) break;
         const start = [];
         while (active < MAX_PARALLEL) {
-          const it = list().find(x => x.state === 'waiting' && (x.nextAt || 0) <= now());
+          const it = nextReady();
           if (!it) break;
           const rev = it.rev; it.state = 'uploading'; it.error = ''; active++; start.push({ it, rev });
         }
@@ -155,7 +201,7 @@ function create(opts) {
   // Uploading -> the upload can't be called back once sent, so it is marked and its file is trashed as soon as the upload answers.
   async function discard(id) {
     await load(); const it = items.get(id); if (!it || it.state === 'deleting') return { phase: 'none' };
-    if (it.state === 'waiting' || it.state === 'failed') { await remove(id); return { phase: 'removed' }; }
+    if (it.state === 'waiting' || it.state === 'failed' || it.state === 'needsjo') { await remove(id); return { phase: 'removed' }; }
     const t = Object.assign({}, it, { state: 'deleting', inflight: it.state === 'uploading', image: '', delTries: 0, delAt: 0 });
     await save(t); emit(); reap(); return { phase: t.inflight ? 'after-upload' : 'deleting' };
   }
@@ -179,16 +225,17 @@ function create(opts) {
   }
   function wake() { for (const it of items.values()) { if (it.state === 'waiting') it.nextAt = 0; if (it.state === 'deleting') it.delAt = 0; } kick(); reap(); } // back online / app opened
   function counts() {
-    const c = { waiting: 0, uploading: 0, saved: 0, mismatch: 0, failed: 0 };
+    const c = { waiting: 0, uploading: 0, saved: 0, mismatch: 0, failed: 0, needsjo: 0 };
     for (const it of items.values()) if (it.state in c) c[it.state]++;
-    c.pending = c.waiting + c.uploading; c.total = c.waiting + c.uploading + c.saved + c.mismatch + c.failed; return c;
+    c.pending = c.waiting + c.uploading; c.total = c.waiting + c.uploading + c.saved + c.mismatch + c.failed + c.needsjo; return c;
   }
-  const api = { load, add, pump, kick, wake, retry, retryFailed, remove, discard, reap, counts, list, get: id => items.get(id), prune, deleting: () => all().filter(x => x.state === 'deleting') };
+  const api = { load, add, bindJo, pump, kick, wake, retry, retryFailed, remove, discard, reap, counts, list, get: id => items.get(id), prune, deleting: () => all().filter(x => x.state === 'deleting') };
   return api;
 }
 // one line of status text per item, shared by every list
 function label(it, isOnline) {
   switch (it.state) {
+    case 'needsjo': return 'JO number not read. Type it here. The photo stays on this phone.';
     case 'waiting': return it.error ? (isOnline === false ? 'Waiting for internet' : 'Waiting, will retry (' + it.error + ')') : (isOnline === false ? 'Waiting for internet' : 'Waiting to upload');
     case 'uploading': return 'Uploading…';
     case 'saved': return it.verified ? 'Saved ✓ JO verified' : 'Saved ✓ (no JO number read on this page)';
