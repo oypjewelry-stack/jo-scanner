@@ -88,7 +88,7 @@ function makeHeld(ocrJoNumber, ocrJoPage) {
 }
 ok(/#btnNextPage,#btnCapDone,#btnCapJoSave\{[^}]*height:34px/.test(css) && /font-size:14px/.test(css), 'Save is the same 34px pill as Next page and Done');
 ok(/#startView \.scanjo\{margin-top:0;margin-bottom:calc\(16px \* var\(--sp, 1\)\)\}/.test(css) && /#startView \.stickrow\{margin-bottom:calc\(16px \* var\(--sp, 1\)\)\}/.test(css) && /#startView \.jorow\{margin-bottom:calc\(16px \* var\(--sp, 1\)\)\}/.test(css), 'Scan JO, switches, and the JO box use the 16px staff gap');
-ok(/app\.js\?v=20261022b/.test(html) && /style\.css\?v=20261022a/.test(html) && /handoff\.js\?v=20261022a/.test(html), 'cache-bust bumped');
+ok(/app\.js\?v=20261022c/.test(html) && /style\.css\?v=20261022c/.test(html) && /handoff\.js\?v=20261022c/.test(html), 'cache-bust bumped');
 const isHeic = new Function(grab('isHeic') + '; return isHeic;')();
 ok(isHeic({ name: 'card.HEIC', type: '' }) && isHeic({ name: 'card.heif', type: '' }) && isHeic({ name: 'card.jpg', type: 'image/heic-sequence' }) && !isHeic({ name: 'card.jpg', type: 'image/jpeg' }), 'HEIC and HEIF files are recognized');
 ok(/libheif-js@1\.23\.5\/libheif-wasm\/libheif-bundle\.js/.test(src) && /function loadPhoto\(file\) \{[\s\S]*?if \(isHeic\(file\)\) return heicToCanvas\(file\);/.test(src), 'loadPhoto converts HEIC with the lazy libheif decoder before the usual photo path');

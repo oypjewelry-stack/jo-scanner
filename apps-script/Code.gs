@@ -20,13 +20,20 @@ function doPost(e) {
     var folder, filename, file, blob;
     try {
       folder = getOrCreate_(getOrCreate_(DriveApp.getRootFolder(), PARENT_FOLDER), jo);
-      filename = scanName_(folder, full, req); // e.g. 26-001-p1-101726.jpg; a later session the same day gets ...-101726b.jpg
-      blob = Utilities.newBlob(Utilities.base64Decode(req.imageBase64), 'image/jpeg', filename);
-      var existing = folder.getFilesByName(filename);
-      while (existing.hasNext()) existing.next().setTrashed(true); // re-crop / retake in the SAME session replaces its page; older scans are kept
-      file = folder.createFile(blob);
-      try { file.setDescription(SCAN_TAG + scanSession_(req)); } catch (e) {}
+      var prior = findClientFile_(folder, clientId_(req)); // same photo, response lost: return the file already saved
+      if (prior) { file = prior; filename = prior.getName(); }
+      else {
+        filename = scanName_(folder, full, req); // e.g. 26-001-p1-101726.jpg; a later session the same day gets ...-101726b.jpg
+        blob = Utilities.newBlob(Utilities.base64Decode(req.imageBase64), 'image/jpeg', filename);
+        var existing = folder.getFilesByName(filename);
+        while (existing.hasNext()) existing.next().setTrashed(true); // re-crop / retake in the SAME session replaces its page; older scans are kept
+        file = folder.createFile(blob);
+        try { file.setDescription(scanDesc_(req)); } catch (e) {}
+      }
     } finally { lock.releaseLock(); }
+
+    if (prior) return json_({ ok: true, deduped: true, filename: filename, fileId: file.getId(), fileUrl: file.getUrl(), folderUrl: folder.getUrl(),
+      ocrText: '', joFound: [], match: true, ocrError: '' }); // already saved; do not write the photo, the sheet row, or the sticker again
 
     var ocrText = '', ocrError = '';
     try { ocrText = ocr_(blob, filename); } catch (err) { ocrError = String(err); }
@@ -53,8 +60,34 @@ function ocr_(blob, name) {
  * <JO>-p<page>-<MMDDYY>.jpg (Manila date the page was shot). One scanning session = one set: all its pages share one name tag,
  * so a re-crop / retake in that session reuses the name and replaces the page. A different session never replaces anything:
  * the first set of the day has no letter, the next ones get b, c, … (26-001-p1-101726b.jpg). Older files named <JO>-p<page>.jpg stay as they are. */
-var SCAN_TZ = 'Asia/Manila', SCAN_TAG = 'oyp-scan:';
+var SCAN_TZ = 'Asia/Manila', SCAN_TAG = 'oyp-scan:', CLIENT_TAG = 'oyp-cid:';
 function scanSession_(req) { return String(req.scan || '').replace(/[^\w@.\-]/g, '').slice(0, 80) || 'no-session'; }
+function clientId_(req) { return String(req && req.clientId || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 80); }
+function scanDesc_(req) {
+  var d = SCAN_TAG + scanSession_(req), cid = clientId_(req);
+  return cid ? d + ' ' + CLIENT_TAG + cid : d;
+}
+function descSession_(d) {
+  d = String(d || '');
+  if (d.indexOf(SCAN_TAG) !== 0) return '';
+  return d.slice(SCAN_TAG.length).split(' ')[0];
+}
+function descClient_(d) {
+  var m = String(d || '').match(/(?:^|\s)oyp-cid:([A-Za-z0-9_-]+)/);
+  return m ? m[1] : '';
+}
+function descHasSession_(d, session) { return !!session && descSession_(d) === session; }
+function findClientFile_(folder, cid) {
+  if (!cid || !folder) return null;
+  var it = folder.getFiles();
+  while (it.hasNext()) {
+    var f = it.next();
+    if (f.isTrashed && f.isTrashed()) continue;
+    var d = ''; try { d = String(f.getDescription() || ''); } catch (e) {}
+    if (descClient_(d) === cid) return f;
+  }
+  return null;
+}
 function scanDateTag_(req) {
   var m = String(req.filename || '').match(/-(\d{6})[a-z]?\.jpe?g$/i); // the phone puts the date the page was shot (uploads can wait offline)
   return m ? m[1] : Utilities.formatDate(new Date(), SCAN_TZ, 'MMddyy');
@@ -68,7 +101,7 @@ function scanName_(folder, jo, req) {
     var m = String(f.getName()).match(re); if (!m) continue;
     var sfx = m[1].toLowerCase(), d = ''; used[sfx] = true;
     try { d = String(f.getDescription() || ''); } catch (e) {}
-    if (mine === null && d === SCAN_TAG + session) mine = sfx;
+    if (mine === null && descHasSession_(d, session)) mine = sfx;
   }
   if (mine === null) { var abc = 'bcdefghijklmnopqrstuvwxyz', i = 0; mine = ''; while (used[mine] && i < abc.length) mine = abc.charAt(i++); }
   return base + '-p' + page + '-' + tag + mine + '.jpg';
@@ -98,7 +131,7 @@ function deletePage_(req) {
     while (it.hasNext()) {
       var x = it.next(); if (x.isTrashed && x.isTrashed()) continue;
       var d = ''; try { d = String(x.getDescription() || ''); } catch (e) {}
-      if (one.test(x.getName()) && d === SCAN_TAG + session) targets.push(x);
+      if (one.test(x.getName()) && descHasSession_(d, session)) targets.push(x);
     }
   }
   var ids = [];

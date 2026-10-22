@@ -1,0 +1,86 @@
+Code.gs — one client id per photo, so a retry whose response was lost does not save a second Drive file.
+The phone sends clientId (a string) on every upload of that photo, including retries.
+A second POST with the same clientId returns the file already saved and does not run OCR,
+recordScan_, or the page-1 sticker line again. A re-crop is a new photo: it has a new clientId
+and still replaces only its own session's page, as before. Phones that send no clientId are unchanged.
+
+This is the jo-scanner copy of Code.gs. Paste these three replacements into the live script,
+then Deploy → Manage deployments → Edit → New version so the same /exec URL picks this up.
+The early return has to stay above the sticker line (printEnqueue_). A retry then cannot queue a second sticker.
+
+FIND
+      folder = getOrCreate_(getOrCreate_(DriveApp.getRootFolder(), PARENT_FOLDER), jo);
+      filename = scanName_(folder, full, req); // e.g. 26-001-p1-101726.jpg; a later session the same day gets ...-101726b.jpg
+      blob = Utilities.newBlob(Utilities.base64Decode(req.imageBase64), 'image/jpeg', filename);
+      var existing = folder.getFilesByName(filename);
+      while (existing.hasNext()) existing.next().setTrashed(true); // re-crop / retake in the SAME session replaces its page; older scans are kept
+      file = folder.createFile(blob);
+      try { file.setDescription(SCAN_TAG + scanSession_(req)); } catch (e) {}
+    } finally { lock.releaseLock(); }
+
+    var ocrText = '', ocrError = '';
+
+REPLACE WITH
+      folder = getOrCreate_(getOrCreate_(DriveApp.getRootFolder(), PARENT_FOLDER), jo);
+      var prior = findClientFile_(folder, clientId_(req)); // same photo, response lost: return the file already saved
+      if (prior) { file = prior; filename = prior.getName(); }
+      else {
+        filename = scanName_(folder, full, req); // e.g. 26-001-p1-101726.jpg; a later session the same day gets ...-101726b.jpg
+        blob = Utilities.newBlob(Utilities.base64Decode(req.imageBase64), 'image/jpeg', filename);
+        var existing = folder.getFilesByName(filename);
+        while (existing.hasNext()) existing.next().setTrashed(true); // re-crop / retake in the SAME session replaces its page; older scans are kept
+        file = folder.createFile(blob);
+        try { file.setDescription(scanDesc_(req)); } catch (e) {}
+      }
+    } finally { lock.releaseLock(); }
+
+    if (prior) return json_({ ok: true, deduped: true, filename: filename, fileId: file.getId(), fileUrl: file.getUrl(), folderUrl: folder.getUrl(),
+      ocrText: '', joFound: [], match: true, ocrError: '' }); // already saved; do not write the photo, the sheet row, or the sticker again
+
+    var ocrText = '', ocrError = '';
+
+FIND
+var SCAN_TZ = 'Asia/Manila', SCAN_TAG = 'oyp-scan:';
+function scanSession_(req) { return String(req.scan || '').replace(/[^\w@.\-]/g, '').slice(0, 80) || 'no-session'; }
+
+REPLACE WITH
+var SCAN_TZ = 'Asia/Manila', SCAN_TAG = 'oyp-scan:', CLIENT_TAG = 'oyp-cid:';
+function scanSession_(req) { return String(req.scan || '').replace(/[^\w@.\-]/g, '').slice(0, 80) || 'no-session'; }
+function clientId_(req) { return String(req && req.clientId || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 80); }
+function scanDesc_(req) {
+  var d = SCAN_TAG + scanSession_(req), cid = clientId_(req);
+  return cid ? d + ' ' + CLIENT_TAG + cid : d;
+}
+function descSession_(d) {
+  d = String(d || '');
+  if (d.indexOf(SCAN_TAG) !== 0) return '';
+  return d.slice(SCAN_TAG.length).split(' ')[0];
+}
+function descClient_(d) {
+  var m = String(d || '').match(/(?:^|\s)oyp-cid:([A-Za-z0-9_-]+)/);
+  return m ? m[1] : '';
+}
+function descHasSession_(d, session) { return !!session && descSession_(d) === session; }
+function findClientFile_(folder, cid) {
+  if (!cid || !folder) return null;
+  var it = folder.getFiles();
+  while (it.hasNext()) {
+    var f = it.next();
+    if (f.isTrashed && f.isTrashed()) continue;
+    var d = ''; try { d = String(f.getDescription() || ''); } catch (e) {}
+    if (descClient_(d) === cid) return f;
+  }
+  return null;
+}
+
+FIND
+    if (mine === null && d === SCAN_TAG + session) mine = sfx;
+
+REPLACE WITH
+    if (mine === null && descHasSession_(d, session)) mine = sfx;
+
+FIND
+      if (one.test(x.getName()) && d === SCAN_TAG + session) targets.push(x);
+
+REPLACE WITH
+      if (one.test(x.getName()) && descHasSession_(d, session)) targets.push(x);
