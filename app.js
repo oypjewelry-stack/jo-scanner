@@ -33,9 +33,25 @@ function realJO(s) { // a JO this phone will file. 'OCR' is the hold while the n
   const n = normJO(s);
   return /^\d{2}-\d{3,4}[A-Z]?$/.test(n) ? n : '';
 }
-function joFromRead(r) { // readJo_ is confident only when it found one number and did not mark the crop low
-  if (!r || r.ok === false || r.low) return '';
+function uniqueJOs(list) { // real JO numbers named in a readJo found list, once each
+  const out = [];
+  const found = Array.isArray(list) ? list : [];
+  for (let i = 0; i < found.length; i++) {
+    const n = realJO(found[i]);
+    if (n && out.indexOf(n) < 0) out.push(n);
+  }
+  return out;
+}
+function joFromRead(r) { // readJo_ sets low when the crop text runs past 24 characters. One JO in found is still the number.
+  if (!r || r.ok === false) return '';
+  if (uniqueJOs(r.found).length === 1) return realJO(r.jo);
+  if (r.low) return '';
   return realJO(r.jo);
+}
+function joFromPage(r) { // a whole-page read is filed only when it names exactly one JO
+  if (!r || r.ok === false) return '';
+  const one = uniqueJOs(r.found);
+  return one.length === 1 ? one[0] : '';
 }
 if (typeof module !== 'undefined' && module.exports) module.exports.normJO = normJO;
 
@@ -94,11 +110,10 @@ function buildMenu() {
   }).join('');
   else h = `<a href="${site}">${role === 'staff' ? 'Home' : 'Back office'}</a>`;
   if (!placed) h += printerRow(); // same place nav.js uses when the role has no Settings row
-  // JO card zones is inserted by scan-zones.js immediately before Scanner settings. Print test stays the last row.
-  h += `<hr><a href="#" data-m="queue">Pending uploads${c.pending + c.failed ? ` <span class="badge">${c.pending + c.failed}</span>` : ''}</a><a href="#" data-m="settings">Scanner settings</a>`;
+  // JO card zones is inserted by scan-zones.js immediately before Scanner settings. Log out stays the last row.
+  h += `<hr><a href="#" data-m="queue">Pending uploads${c.pending + c.failed ? ` <span class="badge">${c.pending + c.failed}</span>` : ''}</a><a href="#" data-m="settings">Scanner settings</a><a href="${PRINT_TEST}">Print test</a>`;
   if (role) h += `<a href="${site}#/logout" data-m="logout">Log out</a>`;
   else h += `<p class="mnote">Open the scanner from the back-office menu once to see your full menu here.</p>`;
-  h += `<a href="${PRINT_TEST}">Print test</a>`;
   return h;
 }
 const menu = $('menu');
@@ -684,17 +699,79 @@ function cropZoneB64(dataUrl, zone) { // the JO-number box, as a JPEG. Same crop
     img.src = String(dataUrl || '').indexOf('data:') === 0 ? dataUrl : 'data:image/jpeg;base64,' + dataUrl;
   });
 }
+const READ_JO_MAX_B64 = 1500000; // readJo_ rejects ocrBase64 longer than 2,000,000 characters
+function jpegPayload(dataUrl) { // base64 after the comma; that is the string readJo_ measures
+  const s = String(dataUrl || '');
+  const i = s.indexOf(',');
+  return (i >= 0 ? s.slice(i + 1) : s).replace(/\s+/g, '');
+}
+function readJoFit(long, len) { // smaller long edge when this JPEG's base64 is not well under the readJo cap
+  long = Math.max(1, Math.round(Number(long) || 1));
+  if (!(len > READ_JO_MAX_B64)) return long;
+  let edge = Math.round(long * Math.sqrt(READ_JO_MAX_B64 / len) * 0.85);
+  if (!(edge > 0)) edge = Math.round(long * 0.75);
+  if (edge >= long) edge = Math.round(long * 0.75);
+  if (edge < 320 && long > 320) edge = 320;
+  return edge < long ? edge : 0;
+}
+function loadDataUrl(dataUrl) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    const s = String(dataUrl || '');
+    img.src = s.indexOf('data:') === 0 ? s : 'data:image/jpeg;base64,' + s;
+  });
+}
+function canvasJpegB64(img, long) {
+  try {
+    const w0 = img.naturalWidth || img.width, h0 = img.naturalHeight || img.height;
+    if (!w0 || !h0) return '';
+    const s = Math.min(1, long / Math.max(w0, h0));
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(w0 * s)); c.height = Math.max(1, Math.round(h0 * s));
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    const url = c.toDataURL('image/jpeg', 0.8), i = url.indexOf(',');
+    c.width = c.height = 0;
+    return i >= 0 ? url.slice(i + 1) : '';
+  } catch (e) { return ''; }
+}
+async function pageReadB64(dataUrl) { // whole page 1, shrunk until the base64 stays well under 2,000,000 characters
+  let b64 = jpegPayload(dataUrl);
+  if (b64 && b64.length <= READ_JO_MAX_B64) return b64;
+  const img = await loadDataUrl(dataUrl);
+  const w = img && (img.naturalWidth || img.width), h = img && (img.naturalHeight || img.height);
+  if (!w || !h) return '';
+  let long = Math.max(w, h);
+  for (let n = 0; n < 6; n++) {
+    const len = b64 && b64.length ? b64.length : READ_JO_MAX_B64 + 1;
+    const next = readJoFit(long, len);
+    if (!(next > 0) || next >= long) break;
+    long = next;
+    b64 = canvasJpegB64(img, long);
+    if (!b64) return '';
+    if (b64.length <= READ_JO_MAX_B64) return b64;
+  }
+  return '';
+}
+async function postReadJo(b64) {
+  const res = await (window.__oypNativeFetch || fetch)(api(), { method: 'POST', redirect: 'follow',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ op: 'readJo', token: localStorage.getItem(LS.token) || '', ocrBase64: b64 }) });
+  try { return await res.json(); } catch (e) { return null; }
+}
 async function ocrJoNumber(dataUrl) { // readJo on the JO-number zone only. A typed number never comes through here.
   await waitZones();
   const zone = zonesNow().find(z => z && z.id === 'jo');
   if (!zone) return '';
   const b64 = await cropZoneB64(dataUrl, zone);
   if (!b64) return '';
-  const res = await (window.__oypNativeFetch || fetch)(api(), { method: 'POST', redirect: 'follow',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ op: 'readJo', token: localStorage.getItem(LS.token) || '', ocrBase64: b64 }) });
-  let r = null; try { r = await res.json(); } catch (e) { r = null; }
-  return joFromRead(r);
+  return joFromRead(await postReadJo(b64));
+}
+async function ocrJoPage(dataUrl) { // one readJo of the whole first page when the zone crop named nothing
+  const b64 = await pageReadB64(dataUrl);
+  if (!b64 || b64.length > READ_JO_MAX_B64) return '';
+  return joFromPage(await postReadJo(b64));
 }
 function fileHeld(jo) { // the number is known: rename the kept pages and upload them as that JO
   jo = realJO(jo); if (!jo) return false;
@@ -725,6 +802,7 @@ async function readHeldJo() {
   cap.reading = true; renderCapture();
   let jo = '';
   try { jo = await ocrJoNumber(page.image); } catch (e) { console.warn('readJo', e); }
+  if (!jo && !realJO(state.jo)) { try { jo = await ocrJoPage(page.image); } catch (e) { console.warn('readJo page', e); } }
   cap.reading = false;
   if (realJO(state.jo)) return;
   if (jo) fileHeld(jo); else askForJo();

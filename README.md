@@ -35,7 +35,7 @@ The token is saved and then removed from the address bar.
 4. Every page is stored on the phone first (IndexedDB) and uploads by itself in the background, a few at a time, with retries. Page 1 does not wait for later pages. It survives **Done**, the next scan, a reload, closing the tab and losing signal. The bar under the camera says **All saved ✓** or **N still uploading**. **Pending uploads** (start screen, scan screen, Menu) lists every page: Waiting, Uploading, Saved, Saved but the card reads another JO, or Failed (with Retry / Remove). Saved pages clear from the list after 12 hours.
 5. Tap **Done**, then type the next JO number. No need to wait for uploads.
 
-The ☰ Menu is the same back-office menu as oypjewelry.com (from its `nav.js`). Open the scanner from the back-office menu once so it knows which menu to show. Back-office links go to `https://oypjewelry.com/staff/` (the site root is the customer page). **Print test** is the last menu row and opens `https://oypjewelry.com/staff/print-test.html`.
+The ☰ Menu is the same back-office menu as oypjewelry.com (from its `nav.js`). Open the scanner from the back-office menu once so it knows which menu to show. Back-office links go to `https://oypjewelry.com/staff/` (the site root is the customer page). **Print test** sits above **Log out** and opens `https://oypjewelry.com/staff/print-test.html`. Log out is the last menu row.
 
 Tip: add the page to the Home Screen from Safari's Share menu so it opens full-screen.
 
