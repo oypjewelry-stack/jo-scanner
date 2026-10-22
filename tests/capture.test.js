@@ -36,6 +36,10 @@ ok(/#btnNextPage,#btnCapDone,#btnCapJoSave\{[^}]*height:34px/.test(css) && /font
 ok(/printerItemHtml/.test(src) && /data-oyp-printer/.test(src), 'the menu uses the shared nav.js Printer row');
 ok(/OFFICE_NAV/.test(src) && /N\.ordered\(user\)/.test(src) && /consignment/.test(src) && /production/.test(src), 'the menu uses the full staff list, including saved order');
 ok(/<hr><a href="#" data-m="queue">/.test(src) && /data-m="settings">Scanner settings/.test(src), 'Pending uploads and Scanner settings stay below the divider');
+const linkAt = src.indexOf('<a href="${PRINT_TEST}">Print test</a>');
+ok(linkAt > src.lastIndexOf('Scanner settings') && /href="\$\{PRINT_TEST\}">Print test<\/a>/.test(src) && !/class="[^"]*pill|class="qbtn"|<button[^>]*>Print test/.test(src.slice(linkAt - 40, linkAt + 80)), 'Print test is the last menu row, a plain link under Scanner settings');
+ok((src.match(/print-test\.html/g) || []).length === 1 && !/print-test/.test(html), 'the print test page is linked only from the menu');
+ok(/qs\.delete\('token'\)/.test(src), 'a token in the address is saved and removed from the query string');
 ok(!/id="oypPrBtn"|id="printChip"/.test(html) && /header\.top #printChip,header\.top \.oyp-pr-slot\{display:none!important\}/.test(css), 'the scanner header has no printer button of its own');
 ok(/req\.printJo !== false/.test(paste) && /req\.printTag !== false/.test(paste) && /jo_card/.test(paste) && /jewelry_tag/.test(paste), 'paste queues jo_card and jewelry_tag unless that flag is false');
 ok(/filename: pageName\(state\.jo, state\.page, shot\)/.test(src), 'new pages still use pageName');
@@ -55,6 +59,12 @@ ok(joFromRead({ ok: true, jo: '26-014', low: false }) === '26-014', 'a confident
 ok(joFromRead({ ok: true, jo: '26-014', low: true }) === '' && joFromRead({ ok: false, jo: '26-014' }) === '' && joFromRead({ ok: true, jo: '', low: false }) === '', 'a low or empty read is not filed');
 ok(/#btnNextPage,#btnCapDone,#btnCapJoSave\{[^}]*height:34px/.test(css) && /font-size:14px/.test(css), 'Save is the same 34px pill as Next page and Done');
 ok(/#startView \.scanjo\{margin-top:0;margin-bottom:calc\(16px \* var\(--sp, 1\)\)\}/.test(css) && /#startView \.stickrow\{margin-bottom:calc\(16px \* var\(--sp, 1\)\)\}/.test(css) && /#startView \.jorow\{margin-bottom:calc\(16px \* var\(--sp, 1\)\)\}/.test(css), 'Scan JO, switches, and the JO box use the 16px staff gap');
-ok(/app\.js\?v=20261021f/.test(html) && /style\.css\?v=20261021f/.test(html), 'cache-bust bumped');
+ok(/app\.js\?v=20261022a/.test(html) && /style\.css\?v=20261022a/.test(html) && /handoff\.js\?v=20261022a/.test(html), 'cache-bust bumped');
+const isHeic = new Function(grab('isHeic') + '; return isHeic;')();
+ok(isHeic({ name: 'card.HEIC', type: '' }) && isHeic({ name: 'card.heif', type: '' }) && isHeic({ name: 'card.jpg', type: 'image/heic-sequence' }) && !isHeic({ name: 'card.jpg', type: 'image/jpeg' }), 'HEIC and HEIF files are recognized');
+ok(/libheif-js@1\.23\.5\/libheif-wasm\/libheif-bundle\.js/.test(src) && /function loadPhoto\(file\) \{[\s\S]*?if \(isHeic\(file\)\) return heicToCanvas\(file\);/.test(src), 'loadPhoto converts HEIC with the lazy libheif decoder before the usual photo path');
+ok(!/cannot open HEIC/.test(src + html), 'a HEIC photo is not refused with the old message');
+ok((html.match(/accept="image\/\*,\.heic,\.heif"/g) || []).length === 2, 'the camera and gallery inputs accept HEIC and HEIF');
+ok(/nav\.js\?v=33/.test(html), 'scanner loads the current staff nav.js');
 
 console.log('capture tests passed:', n);
