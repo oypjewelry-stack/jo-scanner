@@ -15,14 +15,15 @@ Files: `index.html`, `style.css`, `app.js` (front end, static, no build step) an
 After you change the code later, use **Deploy → Manage deployments → Edit → New version** so the URL stays the same.
 
 ## 2. Host the front end (free)
-Any static host works. Camera access requires HTTPS.
+Camera access requires HTTPS. The live scanner is **https://oypjewelry.com/scan/** (the `scan/` folder of the oyp site). The older address `https://oypjewelry-stack.github.io/jo-scanner/` opens that page. The first time, this phone's saved settings (web app URL, token, switches, zones) ride along in the link fragment, which is not sent to the server. The token is never put in the query string. Pages still waiting to upload stay on the old address until they finish, then the next open moves across.
 - **GitHub Pages:** create a public repo, upload `index.html`, `style.css` and `app.js`, then go to **Settings → Pages → Deploy from branch → main / root**.
 - **Cloudflare Pages:** **Workers & Pages → Create → Pages → Upload assets**, then drag in this folder.
 - **Netlify Drop** (app.netlify.com/drop): drag in the folder.
 
 ## 3. Point the app at the backend
-Open the page on the iPhone, tap Settings, paste the Web app URL and the token, then tap Save. Both are stored on that phone. You can also use one link per staff phone:
-`https://YOUR-SITE/?api=WEB_APP_URL&token=SECRET`
+Open the page on the iPhone, tap Menu → Scanner settings, paste the Web app URL and the token, then tap Save. Both are stored on that phone. You can also use one link per staff phone:
+`https://oypjewelry.com/scan/?api=WEB_APP_URL&token=SECRET`
+The token is saved and then removed from the address bar.
 
 ## 4. Use it
 **Scan JO (default):** tap the big **Scan JO** button. The phone's own camera opens, and the JO number is read from the JO-number box on the card. A number typed first is used instead. If the read is not confident, the photo stays on the capture screen and she types the number once, then taps **Save**. After the shot the app stays on that screen: a thumbnail of each page with its upload status, then **Next page** and **Done** side by side (one tap on Next page opens the camera again). Page 1 starts uploading once the number is known and creates or identifies the JO; later pages attach to that same JO and can upload while page 1 is still going. **Done** does not wait for uploads and does not ask you to confirm. **JO sticker** and **Jewelry tag** (both on by default, each remembered on this phone) sit on the start screen and the capture screen. Page 1 sends `printJo` and `printTag`. Off means that sticker is not queued, and the capture screen notes it (**No JO sticker**, **No jewelry tag**). **Upload from gallery** and **Live scan** stay the small links under the help text. Add to Home Screen gives a full-screen app icon (manifest.webmanifest).
@@ -34,7 +35,7 @@ Open the page on the iPhone, tap Settings, paste the Web app URL and the token, 
 4. Every page is stored on the phone first (IndexedDB) and uploads by itself in the background, a few at a time, with retries. Page 1 does not wait for later pages. It survives **Done**, the next scan, a reload, closing the tab and losing signal. The bar under the camera says **All saved ✓** or **N still uploading**. **Pending uploads** (start screen, scan screen, Menu) lists every page: Waiting, Uploading, Saved, Saved but the card reads another JO, or Failed (with Retry / Remove). Saved pages clear from the list after 12 hours.
 5. Tap **Done**, then type the next JO number. No need to wait for uploads.
 
-The ☰ Menu is the same back-office menu as oypjewelry.com (from its `nav.js`). Open the scanner from the back-office menu once so it knows which menu to show. Back-office links go to `https://oypjewelry.com/staff/` (the site root is the customer page).
+The ☰ Menu is the same back-office menu as oypjewelry.com (from its `nav.js`). Open the scanner from the back-office menu once so it knows which menu to show. Back-office links go to `https://oypjewelry.com/staff/` (the site root is the customer page). **Print test** sits above **Log out** and opens `https://oypjewelry.com/staff/print-test.html`. Log out is the last menu row.
 
 Tip: add the page to the Home Screen from Safari's Share menu so it opens full-screen.
 

@@ -4,12 +4,14 @@
 const $ = id => document.getElementById(id);
 const LS = { api: 'oypScanApi', token: 'oypScanToken', rotate: 'oypScanRotate', auto: 'oypScanAuto', crop: 'oypScanCrop', role: 'oypScanRole', printJo: 'oypScanPrintJo', printTag: 'oypScanPrintTag' };
 const qs = new URLSearchParams(location.search);
+let stripQuery = false;
 if (qs.get('api')) localStorage.setItem(LS.api, qs.get('api'));
-if (qs.get('token')) localStorage.setItem(LS.token, qs.get('token'));
+if (qs.get('token')) { localStorage.setItem(LS.token, qs.get('token')); qs.delete('token'); stripQuery = true; } // never leave the token in the address bar
 if (qs.has('role')) { // set by the back-office menu link: which menu items to show here
   if (qs.get('role')) localStorage.setItem(LS.role, qs.get('role')); else localStorage.removeItem(LS.role);
-  qs.delete('role'); history.replaceState(null, '', location.pathname + (String(qs) ? '?' + qs : '') + location.hash);
+  qs.delete('role'); stripQuery = true;
 }
+if (stripQuery) history.replaceState(null, '', location.pathname + (String(qs) ? '?' + qs : '') + location.hash);
 const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
 const state = { jo: '', page: 0, scan: '', stream: null, loop: null, lastQuad: null, steadySince: 0, armed: true, cooldownUntil: 0 };
@@ -73,6 +75,7 @@ refreshWarn();
 
 /* ---------- back-office menu (same list as oypjewelry.com, from its nav.js; copy below if offline) ---------- */
 const STAFF_URL = 'https://oypjewelry.com/staff/'; // back office (oypjewelry.com/ itself is the customer landing page)
+const PRINT_TEST = 'https://oypjewelry.com/staff/print-test.html'; // label alignment page. Menu only; same text row as the other items.
 const NAV_FALLBACK = { SITE: STAFF_URL, STAFF: STAFF_URL, OFFICE_NAV: { // same full lists as nav.js OFFICE_NAV, used only if that file has not loaded
   admin: [['dashboard', 'Dashboard'], ['appts', 'Appointments'], ['jos', 'Inventory'], ['consignment', 'Consignment'], ['review', 'To review'], ['scanner', 'Scanner'], ['production', 'Production'], ['estimate', 'Cost estimator'], ['inventory', 'Materials'], ['prices', 'Material prices'], ['customers', 'Customers'], ['payments', 'Quotes / payments'], ['shop', 'Shop listings'], ['settings', 'Settings']],
   production_manager: [['dashboard', 'Dashboard'], ['appts', 'Appointments'], ['jos', 'Inventory'], ['consignment', 'Consignment'], ['review', 'To review'], ['scanner', 'Scanner'], ['production', 'Production'], ['estimate', 'Cost estimator'], ['inventory', 'Materials'], ['prices', 'Material prices'], ['balances', 'Balances']],
@@ -107,7 +110,8 @@ function buildMenu() {
   }).join('');
   else h = `<a href="${site}">${role === 'staff' ? 'Home' : 'Back office'}</a>`;
   if (!placed) h += printerRow(); // same place nav.js uses when the role has no Settings row
-  h += `<hr><a href="#" data-m="queue">Pending uploads${c.pending + c.failed ? ` <span class="badge">${c.pending + c.failed}</span>` : ''}</a><a href="#" data-m="settings">Scanner settings</a>`;
+  // JO card zones is inserted by scan-zones.js immediately before Scanner settings. Log out stays the last row.
+  h += `<hr><a href="#" data-m="queue">Pending uploads${c.pending + c.failed ? ` <span class="badge">${c.pending + c.failed}</span>` : ''}</a><a href="#" data-m="settings">Scanner settings</a><a href="${PRINT_TEST}">Print test</a>`;
   if (role) h += `<a href="${site}#/logout" data-m="logout">Log out</a>`;
   else h += `<p class="mnote">Open the scanner from the back-office menu once to see your full menu here.</p>`;
   return h;
@@ -564,7 +568,65 @@ async function canvasJpeg(canvas, quality) {
   } catch (e) { console.warn('jpeg worker', e); }
   return canvas.toDataURL('image/jpeg', quality);
 }
+/* Chrome and Edge cannot decode HEIC. Same lazy libheif load as scan-zones.js: fetched only for a .heic/.heif file.
+   The bundle's global is an init function; calling it returns the object with HeifDecoder. */
+const HEIC_DECODER = 'https://cdn.jsdelivr.net/npm/libheif-js@1.23.5/libheif-wasm/libheif-bundle.js';
+let heicApi = null, heicLib = null;
+function isHeic(file) {
+  const name = String(file && file.name || '').toLowerCase();
+  const type = String(file && file.type || '').toLowerCase();
+  return /\.hei[cf]$/.test(name) || type.startsWith('image/heic') || type.startsWith('image/heif');
+}
+function loadHeicDecoder() {
+  if (heicApi) return Promise.resolve(heicApi);
+  if (heicLib) return heicLib;
+  heicLib = new Promise((resolve, reject) => {
+    const fail = () => { heicLib = null; reject(new Error('could not open this photo')); };
+    const take = api => { if (!api || !api.HeifDecoder) { fail(); return; } heicApi = api; resolve(api); };
+    const fromGlobal = () => {
+      const lib = window.libheif;
+      if (lib && lib.HeifDecoder) { take(lib); return; }
+      if (typeof lib !== 'function') { fail(); return; }
+      Promise.resolve().then(() => lib()).then(take, fail);
+    };
+    if (window.libheif) { fromGlobal(); return; }
+    const s = document.createElement('script');
+    s.src = HEIC_DECODER; s.async = true; s.onload = fromGlobal; s.onerror = fail;
+    (document.head || document.documentElement).appendChild(s);
+  });
+  return heicLib;
+}
+function scalePhotoCanvas(c) {
+  const s = Math.min(1, PHOTO_SRC_PX / Math.max(c.width, c.height));
+  if (s >= 1) return c;
+  const o = document.createElement('canvas');
+  o.width = Math.max(1, Math.round(c.width * s)); o.height = Math.max(1, Math.round(c.height * s));
+  o.getContext('2d').drawImage(c, 0, 0, o.width, o.height);
+  return o;
+}
+function heicToCanvas(file) { // decode, then the same size cap as every other photo
+  return loadHeicDecoder().then(lib => file.arrayBuffer().then(buf => {
+    let images;
+    try { images = new lib.HeifDecoder().decode(new Uint8Array(buf)); }
+    catch (e) { throw new Error('could not open this photo'); }
+    if (!images || !images.length) throw new Error('could not open this photo');
+    const image = images[0], w = image.get_width(), h = image.get_height();
+    if (!w || !h) throw new Error('could not open this photo');
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    const ctx = c.getContext('2d'), imageData = ctx.createImageData(w, h);
+    return new Promise((resolve, reject) => {
+      const bad = () => reject(new Error('could not open this photo'));
+      try {
+        image.display(imageData, displayData => {
+          if (!displayData) { bad(); return; }
+          try { ctx.putImageData(displayData, 0, 0); resolve(scalePhotoCanvas(c)); } catch (e) { bad(); }
+        });
+      } catch (e) { bad(); }
+    });
+  }));
+}
 function loadPhoto(file) { // EXIF orientation respected; very large photos scaled to PHOTO_SRC_PX so phones keep memory
+  if (isHeic(file)) return heicToCanvas(file);
   const viaWorker = () => file.arrayBuffer().then(buf => workerCall({ op: 'scale', buf, type: file.type || 'image/jpeg', maxPx: PHOTO_SRC_PX }, [buf])).then(res => {
     const bmp = res.bitmap, c = document.createElement('canvas'); c.width = bmp.width; c.height = bmp.height;
     c.getContext('2d').drawImage(bmp, 0, 0); if (bmp.close) bmp.close(); return c;
@@ -578,7 +640,7 @@ function loadPhotoMain(file) {
     c.width = Math.round(w * s); c.height = Math.round(h * s); c.getContext('2d').drawImage(el, 0, 0, c.width, c.height); return c; };
   const viaImg = () => new Promise((res, rej) => { const u = URL.createObjectURL(file), i = new Image();
     i.onload = () => { URL.revokeObjectURL(u); try { res(draw(i, i.naturalWidth, i.naturalHeight)); } catch (e) { rej(e); } };
-    i.onerror = () => { URL.revokeObjectURL(u); rej(new Error(/hei[cf]/i.test(file.type + ' ' + file.name) ? 'this phone cannot open HEIC photos here. Use Scan JO (camera) instead' : 'could not open this photo')); };
+    i.onerror = () => { URL.revokeObjectURL(u); rej(new Error('could not open this photo')); };
     i.src = u; });
   if (typeof createImageBitmap !== 'function') return viaImg();
   return createImageBitmap(file, { imageOrientation: 'from-image' }).then(b => { try { return draw(b, b.width, b.height); } finally { b.close && b.close(); } }, viaImg);
